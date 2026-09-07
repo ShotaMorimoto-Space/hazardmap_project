@@ -1,16 +1,14 @@
-# PROJECT_GUIDELINES.md
-
 # AI Disaster Map Project
 
 ## Project Overview
 
 本プロジェクトは、
 
-**「自宅住所を入力すると、自宅専用のオシャレな防災マップを生成し、そのまま購入できるECサービス」**
+**「自宅住所を入力すると、自宅専用のオリジナルマップを生成し、防災情報を必要に応じて重ね、そのまま購入できるECサービス」**
 
 を構築することを目的とする。
 
-本プロジェクトは
+本プロジェクトは、
 **AIと個人1人だけでどこまでサービス開発ができるか**
 を検証する実験でもある。
 
@@ -20,7 +18,7 @@
 
 5か月（約150時間）でV1.0をローンチする。
 
-ローンチ時点では
+ローンチ時点では、
 
 - 商品を公開
 - 実際に購入可能
@@ -33,13 +31,13 @@
 
 # Development Philosophy
 
-このプロジェクトは
+このプロジェクトは、
 
 「自分がプログラマーになる」
 
 ことが目的ではない。
 
-目的は
+目的は、
 
 **AIを最大限活用し、事業責任者1人でサービスを立ち上げること**
 
@@ -51,9 +49,9 @@
 
 ## Human
 
-Project Owner
+Role: Project Owner
 
-役割
+役割:
 
 - プロダクト判断
 - 優先順位決定
@@ -65,11 +63,9 @@ Project Owner
 
 ## ChatGPT
 
-Role
+Role: PM / CTO
 
-PM / CTO
-
-責務
+責務:
 
 - 要件定義
 - 機能整理
@@ -82,21 +78,15 @@ PM / CTO
 - GitHub Issue作成支援
 - 次タスク決定
 
-ChatGPTは
-
-「What」
-
-を担当する。
+ChatGPTは **「What」** を担当する。
 
 ---
 
 ## Cursor
 
-Role
+Role: Engineer
 
-Engineer
-
-責務
+責務:
 
 - 実装
 - リファクタリング
@@ -104,61 +94,110 @@ Engineer
 - テスト
 - Git操作
 
-Cursorは
-
-「How」
-
-を担当する。
+Cursorは **「How」** を担当する。
 
 ---
 
 # Tech Stack
 
-Frontend
+## Frontend
 
 - Next.js
+- TypeScript
 
-Backend
+## Backend
 
-- Next.js API Routes
-（FastAPIは現時点では採用しない）
+- FastAPI
+- Python
 
-Commerce
+## Database
+
+- PostgreSQL
+- PostGIS
+
+## Commerce
 
 - Shopify
 
-Map
+## Map
 
 - Mapbox
 
-Print
+## Print / Fulfillment
 
 - Printful
 
-Database
-
-- PostgreSQL
-
-Version Control
+## Version Control
 
 - GitHub
+
+## Repository Strategy
+
+- Monorepo
+- `apps/web` にNext.js
+- `apps/api` にFastAPI
 
 ---
 
 # Architecture Principles
 
-Shopifyは
+Shopifyは **Commerce Adapter** として利用する。
 
-Commerce Adapter
+地図生成や防災ロジックをShopifyへ持たせない。
 
-として利用する。
+Map CustomizerとHazard EngineはCommerceから分離して設計する。
 
-地図生成や防災ロジックを
-Shopifyへ持たせない。
+FastAPIは、以下のコアバックエンド処理を担う。
 
-Map Customizerは独立したシステムとして設計する。
+- 防災データ取得・統合
+- Geocoding制御
+- 避難所検索
+- 洪水・土砂災害・津波などの判定
+- 地理空間処理
+- 将来的な印刷データ生成処理
 
-将来的に
+Next.jsは、以下を担う。
+
+- Web UI
+- 住所入力
+- Mapbox上の表示・操作
+- Map Customizer
+- デザインテンプレート選択
+- 商品プレビュー
+- Shopify連携
+- 購入導線
+
+Mapboxは、地図表示とMap Styleのカスタマイズに利用する。
+
+V1.0のデザインテンプレートは、Mapboxのカスタムスタイルを利用して作成する。
+
+ユーザーは以下をカスタマイズできる。
+
+- 防災レイヤー
+  - なし
+  - 洪水
+  - 土砂災害
+  - 津波
+- 避難所
+  - 表示
+  - 非表示
+- 任意マーカー
+  - 追加
+  - 削除
+- Mapboxベースのデザインテンプレート
+- 地図表示範囲
+- 商品サイズ
+  - A2
+  - A1
+- フレーム
+  - あり
+  - なし
+
+防災レイヤーは同時に最大1種類とする。
+
+ユーザー任意マーカーについて、V1.0では名称入力やメモ入力は実装しない。
+
+将来的に、
 
 Shopify
 
@@ -172,15 +211,18 @@ Amazon
 
 などへ変更可能な構造を維持する。
 
+Hazard Engineは、将来的にWeb EC以外のチャネルからも再利用可能な構造を目指す。
+
+ただし、MVP段階ではマイクロサービス化しない。
+FastAPIは単一バックエンドアプリケーションとして構築する。
+
 ---
 
 # Development Rules
 
 ## 1日最大60分
 
-開発時間は
-
-最大60分。
+開発時間は最大60分。
 
 時間が来たら終了する。
 
@@ -188,9 +230,7 @@ Amazon
 
 ## 1日1Issue
 
-基本的に
-
-GitHub Issueを1件だけ進める。
+基本的にGitHub Issueを1件だけ進める。
 
 複数Issueへ手を出さない。
 
@@ -198,15 +238,9 @@ GitHub Issueを1件だけ進める。
 
 ## Acceptance Criteria First
 
-実装前に必ず
+実装前に必ずAcceptance Criteriaを書く。
 
-Acceptance Criteria
-
-を書く。
-
-実装後は
-
-Acceptance Criteriaでレビューする。
+実装後はAcceptance Criteriaでレビューする。
 
 ---
 
@@ -218,120 +252,137 @@ Acceptance Criteriaでレビューする。
 
 MVPを最優先する。
 
+FastAPI採用はマイクロサービス化を意味しない。
+
+FrontendとHazard Engineの責務分離に必要な最小構成として扱う。
+
 ---
 
 ## Single Source of Truth
 
-すべての仕様は
+すべての正式な仕様はGitHubを正とする。
 
-GitHub
+ChatGPTの過去回答より、GitHub上の最新Docs / Issues / Decisionsを優先する。
 
-を正とする。
+重要な仕様変更があった場合は、必要に応じて以下を更新する。
 
-ChatGPTの回答より
-
-GitHub Docsを優先する。
+- `PROJECT_GUIDELINES.md`
+- `docs/requirements.md`
+- `docs/architecture.md`
+- `docs/decisions.md`
+- `docs/progress.md`
 
 ---
 
 # GitHub Structure
 
+```text
+hazardmap_project/
+
+├── apps/
+│   ├── web/          # Next.js + TypeScript
+│   └── api/          # FastAPI + Python
+│
+├── docs/
+│   ├── requirements.md
+│   ├── architecture.md
+│   ├── decisions.md
+│   └── progress.md
+│
+├── PROJECT_GUIDELINES.md
+├── docker-compose.yml
+└── README.md
 ```
-Repository
 
-/docs
-    requirements.md
-    architecture.md
-    decisions.md
-    progress.md
+GitHub運用は原則として以下とする。
 
-/src
-
-Issues
-
-Projects
+```text
+main
+ ↓
+feature/issue-X
+ ↓
+Pull Request
+ ↓
+Review
+ ↓
+main
 ```
+
+初期ドキュメント整備を除き、直接mainへ実装を重ねる運用は避ける。
 
 ---
 
 # Required Documents
 
-requirements.md
+## requirements.md
 
-機能要件
-
----
-
-architecture.md
-
-システム設計
+V1.0の機能要件を定義する。
 
 ---
 
-decisions.md
+## architecture.md
 
-技術的意思決定
+システム設計と各コンポーネントの責務を定義する。
 
-例
+---
 
-- なぜFastAPIを使わないか
+## decisions.md
+
+重要な技術的意思決定を記録する。
+
+例:
+
+- なぜFastAPIを採用するか
+- なぜPostGISを利用するか
+- なぜMonorepoなのか
 - なぜMapboxなのか
 
-など
-
 ---
 
-progress.md
+## progress.md
 
-週次サマリー
+週次サマリーを記録する。
 
-毎日の詳細ではなく
-
-1週間ごとのまとめを書く。
+毎日の詳細ではなく、1週間ごとのまとめを書く。
 
 ---
 
 # Daily Workflow
 
-## Step1（10分）
+## Step 1（10分）
 
 ChatGPT
 
-今日やるIssueを決める
-
-目的を明確にする
-
-Acceptance Criteria作成
+- 今日やるIssueを決める
+- 目的を明確にする
+- Acceptance Criteriaを作成する
 
 ---
 
-## Step2（40分）
+## Step 2（40分）
 
 Cursor
 
-Issueを実装
+- Issueを実装する
+- 必要なテストを行う
+- Gitへ反映する
 
 ---
 
-## Step3（10分）
+## Step 3（10分）
 
 ChatGPT
 
-レビュー
-
-Done判定
-
-次Issue提案
-
-progress更新内容提案
+- 実装内容をレビューする
+- Acceptance Criteriaに基づきDone判定
+- 次Issueを提案する
+- 必要に応じてprogress更新内容を提案する
 
 ---
 
 # Development Phases
 
-## Phase0
-
-Product Design
+## Phase 0 — Product Design
 
 - 要件定義
 - User Flow
@@ -339,40 +390,40 @@ Product Design
 
 ---
 
-## Phase1
-
-Architecture
+## Phase 1 — Architecture
 
 - DB
 - API
 - Domain設計
+- Next.js / FastAPI責務分離
+- Printful商品実現性確認
 
 ---
 
-## Phase2
-
-Foundation
+## Phase 2 — Foundation
 
 - Next.js
+- FastAPI
+- PostgreSQL / PostGIS
 - Shopify
 - Mapbox
 - GitHub
 
 ---
 
-## Phase3
+## Phase 3 — Map Customizer
 
-Map Customizer
-
-- 地図
-- デザイン
+- 地図表示
+- Mapboxデザインテンプレート
+- 防災レイヤー選択
+- 避難所ON / OFF
+- 任意マーカー
 - UI
+- リアルタイムプレビュー
 
 ---
 
-## Phase4
-
-Disaster Engine
+## Phase 4 — Disaster Engine
 
 - 避難所
 - 洪水
@@ -381,75 +432,114 @@ Disaster Engine
 
 ---
 
-## Phase5
+## Phase 5 — Commerce
 
-Commerce
-
+- Product
+- Variant
 - Cart
 - Checkout
 - Order
 
 ---
 
-## Phase6
-
-Production
+## Phase 6 — Production
 
 - Print Data
 - Printful
 
 ---
 
-## Phase7
+## Phase 7 — QA
 
-QA
-
-- スマホ
-- 印刷
+- スマホ表示
+- 印刷品質
 - UX
+- 注文テスト
 
 ---
 
-## Phase8
-
-Launch
+## Phase 8 — Launch
 
 Production Release
 
 ---
 
+# V1.0 Product Scope
+
+V1.0では以下を実現する。
+
+- 日本国内住所入力
+- 自宅中心のMapbox地図生成
+- 防災レイヤー選択
+  - なし
+  - 洪水
+  - 土砂災害
+  - 津波
+- 避難所表示 / 非表示
+- 任意マーカー追加 / 削除
+- Mapboxカスタムスタイルによる複数デザインテンプレート
+- 地図表示範囲調整
+- リアルタイムプレビュー
+- A2 / A1商品
+- フレームあり / なし
+- Shopifyで購入・決済
+- Printfulへ注文
+- 製造・発送
+
+---
+
+# V1.0 Out of Scope
+
+V1.0では以下は原則実装しない。
+
+- A3商品
+- スマートフォンアプリ
+- ユーザー独自アカウントシステム
+- SNS機能
+- 防災通知
+- リアルタイム災害速報
+- AIチャット防災相談
+- 多言語対応
+- 海外住所対応
+- 自治体向け管理画面
+- 複数住所管理
+- 高度な自由編集デザインツール
+- 複数防災レイヤー同時表示
+- マーカー名称入力
+- マーカーメモ入力
+- 自動避難経路生成
+- GPSナビゲーション
+- Amazon販売連携
+- 独自EC / 独自決済
+- マイクロサービス化
+
+---
+
 # AI Rules
 
-ChatGPTは
+ChatGPTは、コードを書くことより設計品質を重視する。
 
-コードを書くことより
+Cursorは実装を担当する。
 
-設計品質を重視する。
+ChatGPTはCursorの成果物をレビューする。
 
-Cursorは
-
-大量実装を行う。
-
-ChatGPTは
-
-Cursorの成果物をレビューする。
+ChatGPTとCursorは会話内容そのものを共有するのではなく、
+GitHub上のDocs / Issues / Pull Requestsを介して共通認識を持つ。
 
 ---
 
 # Project Goal
 
-本プロジェクトは
+本プロジェクトは、
 
 「AIを使ったECサービス」
 
 ではない。
 
-本プロジェクトは
+本プロジェクトは、
 
 **AI時代に個人1人でどこまで事業を構築できるか**
 
 を検証する実験である。
 
-すべての意思決定は
-
-この目的に沿って行う。
+すべての意思決定はこの目的に沿って行う。
