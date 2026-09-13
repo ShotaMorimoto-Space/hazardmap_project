@@ -10,6 +10,7 @@
 - MVPを優先する
 - Hazard EngineをCommerceから独立させる
 - 将来の再利用性を確保しつつ、現時点ではOver Engineeringしない
+- まずValidation Releaseで商品価値を検証し、その後Commercial V1へ進む
 
 ---
 
@@ -20,7 +21,7 @@ Browser
   |
   v
 Next.js (apps/web)
-  |  UI / Map Customizer / Shopify連携
+  |  UI / Map Creator / Product Preview
   |
   | REST API
   v
@@ -31,12 +32,17 @@ FastAPI (apps/api)
   |
   +---- External Hazard/Open Data
   |
-  +---- Mapbox
+  +---- Map Provider
+  |       └─ Validation: Stadia Maps
   |
-  +---- Printful
+  +---- Future Commerce / Fulfillment
+          ├─ Shopify
+          └─ Printful
 ```
 
-ShopifyはCommerce Adapterとして扱い、Hazard Engineの内部ロジックを持たせない。
+Validation Releaseでは、地図表示に **Stadia Maps + MapLibre GL JS** を利用し、地図スタイル作成には **Maputnik** を利用する。
+
+Map Providerは将来差し替え可能な境界として扱い、Commercial V1前にMapboxを再評価する。
 
 ---
 
@@ -45,13 +51,19 @@ ShopifyはCommerce Adapterとして扱い、Hazard Engineの内部ロジック�
 ### Responsibilities
 
 - 住所入力
-- Mapbox地図表示
+- MapLibreによる地図表示
 - 地図のズーム・中心位置などのUI
 - 防災情報の表示
-- デザイン選択
+- Layout選択
+- Title編集
+- Map Style選択
+- Shelter表示ON/OFF
+- Family Places追加・削除
 - 商品プレビュー
-- Shopifyの商品・Cart・Checkout連携
+- Frontend State管理
+- localStorageへの途中保存
 - FastAPIとの通信
+- 将来的なShopify Cart / Checkout連携
 
 ### Non-Responsibilities
 
@@ -61,7 +73,7 @@ ShopifyはCommerce Adapterとして扱い、Hazard Engineの内部ロジック�
 - GIS解析
 - 避難所検索ロジック
 - ハザードデータ統合
-- 将来的に重くなる印刷データ生成ロジック
+- 将来的な印刷データ生成ロジック
 
 ---
 
@@ -81,6 +93,7 @@ FastAPIは本サービスのコアとなるHazard Engineを提供する。
 - 地理空間計算
 - 防災オープンデータ/APIの統合
 - フロントエンド向けレスポンス整形
+- Map Config保存
 - 将来的な印刷データ生成
 
 ### Initial API Concept
@@ -88,27 +101,165 @@ FastAPIは本サービスのコアとなるHazard Engineを提供する。
 ```text
 GET  /health
 POST /api/v1/geocode
-POST /api/v1/hazard/analyze
-GET  /api/v1/shelters
+POST /api/v1/map-context
+POST /api/v1/map-configs
+GET  /api/v1/map-configs/{id}
 POST /api/v1/print
 ```
 
-※ V1.0のAPI仕様はrequirements確定後に詳細化する。
+`/api/v1/map-context` は、指定地点周辺のHazard / Shelter等、Map Creatorに必要な情報を返す統合API候補とする。
+
+APIの細分化は実装段階で必要性を見て判断する。
 
 ---
 
-## 5. Database: PostgreSQL + PostGIS
+## 5. Map Config
+
+Map Configを、ユーザーが作成した地図の「設計図」として扱う。
+
+### Example
+
+```json
+{
+  "location": {
+    "address": "兵庫県...",
+    "lat": 34.78,
+    "lng": 135.40
+  },
+  "layout": "circle",
+  "title": "わたしたちのまち",
+  "title_visible": true,
+  "map_style": "soft-family",
+  "map_view": {
+    "center_lat": 34.78,
+    "center_lng": 135.40,
+    "zoom": 14
+  },
+  "hazard_layer": "flood",
+  "shelter_visible": true,
+  "family_places": [
+    {
+      "lat": 34.779,
+      "lng": 135.402
+    }
+  ]
+}
+```
+
+Map Configは以下で共通利用する。
+
+- Map Creator
+- Product Preview
+- Product Configuration
+- Validation表示
+- 将来的なShopify Order
+- 将来的なPrint Data生成
+
+---
+
+## 6. State / Draft Persistence
+
+V1では独自アカウント・マイページを作らない。
+
+### Editing State
+
+Map Creator操作中は、状態をFrontend Stateとして保持する。
+
+```text
+User Interaction
+      |
+      v
+Next.js State
+      |
+      +---- Preview
+      |
+      +---- localStorage
+```
+
+### Draft Resume
+
+途中離脱対策として、Map Configの下書きをlocalStorageへ自動保存する。
+
+同じ端末・同じブラウザで再アクセスした場合、「前回のマップを続けますか？」という形で再開可能にする。
+
+V1では以下は行わない。
+
+- ユーザーアカウント
+- クラウド下書き保存
+- 複数端末同期
+- マイページ
+- 複数Map管理
+
+---
+
+## 7. Database Save Timing
+
+「次へ」ボタンではDB保存しない。
+
+CustomizerからProduct Configurationへ移動しても、Frontend State + localStorageで状態を保持する。
+
+Commercial V1では、ユーザーが **カートに追加** したタイミングで初めてMap ConfigをDBへ保存する。
+
+```text
+Map Creator
+     |
+     v
+Frontend State + localStorage
+     |
+     v
+Product Configuration
+     |
+     | Add to Cart
+     v
+FastAPI
+     |
+     v
+PostgreSQL
+     |
+     v
+map_config_id
+```
+
+理由:
+
+- 閲覧・試作だけのデータをDBへ大量保存しない
+- ブラウザバックによる不要データ生成を避ける
+- 購入意向が生じた時点からサーバー保存する
+- Commerceとの紐付けを明確にする
+
+未購入のMap Configは `pending` として扱い、将来一定期間後に削除可能な設計とする。
+
+Validation ReleaseではCommerceを実装しないため、原則としてMap ConfigはlocalStorage中心で扱う。
+
+---
+
+## 8. Database: PostgreSQL + PostGIS
 
 PostgreSQLをメインDBとし、地理空間処理のためPostGISを利用する。
 
 ### Expected Data
 
-- 住所/地点
-- 緯度経度
-- 避難所
-- ハザードデータ参照情報
-- Map生成設定
-- Orderとの紐付け情報
+Commercial V1で少なくとも以下を想定する。
+
+```text
+map_configs
+- id
+- config_json
+- status
+- created_at
+- updated_at
+```
+
+```text
+orders
+- id
+- shopify_order_id
+- map_config_id
+- print_status
+- printful_order_id
+```
+
+ユーザーアカウントを持たないため、V1では `users` テーブルを必須としない。
 
 ### PostGIS Use Cases
 
@@ -121,22 +272,165 @@ MVPでは必要な範囲だけ導入し、すべての外部GISデータをDBへ
 
 ---
 
-## 6. Mapbox
+## 9. Map Platform
 
-Mapboxは主に以下を担当する。
+### Validation Release
 
-- Web上の地図表示
-- 地図スタイル
-- Map Customizer UI
-- 必要に応じたGeocoding
+以下を採用する。
 
-防災判定そのものはMapboxへ依存させず、FastAPI側のHazard Engineの責務とする。
+```text
+Stadia Maps
+   |
+   | Vector Tiles / Map Data
+   v
+MapLibre GL JS
+   |
+   v
+Next.js Map Creator
+```
+
+### Style Authoring
+
+地図スタイル作成にはMaputnikを利用する。
+
+```text
+Stadia Maps compatible style
+        |
+        v
+Maputnik
+        |
+        v
+Style JSON
+        |
+        v
+MapLibre GL JS
+```
+
+MaputnikでSoft Family Nordicの地図スタイルを作成し、Style JSONをMapLibreで再現する。
+
+### Design Principle
+
+- Warm White / Light Beigeを背景
+- RoadはSoft Gray
+- WaterはMuted Blue
+- ParkはMuted Sage
+- POIは必要最低限
+- 地名表示を整理
+- Home / Shelter / Family Placesの視認性を上げる
+
+### Provider Boundary
+
+Map Provider固有の実装を可能な限り限定する。
+
+Map ConfigにはProvider固有値を極力持たせず、
+
+- center
+- zoom
+- style identifier
+- markers
+- hazard selection
+
+などの汎用設定を保持する。
+
+Commercial V1前に、Stadia Maps継続またはMapbox移行を再評価する。
 
 ---
 
-## 7. Shopify
+## 10. Hazard / Shelter Data Flow
 
-ShopifyはCommerce Adapterとして利用する。
+```text
+Address Input
+     |
+     v
+Next.js
+     |
+     v
+FastAPI
+     |
+     +---- Geocoding
+     |
+     +---- Hazard Data
+     |
+     +---- Shelter Data
+     |
+     +---- GIS Processing
+     |
+     v
+Map Context Response
+     |
+     v
+Next.js + MapLibre
+```
+
+防災判定そのものはMap Providerへ依存させない。
+
+地図Providerを変更しても、Hazard Engineを再利用できる構造とする。
+
+---
+
+## 11. Validation Release
+
+Commercial V1の前にValidation Releaseを設ける。
+
+### Goal
+
+検証したいのは、**「このデザイン・機能・価格のカスタムハザードマップを欲しいと思うか」** である。
+
+### Scope
+
+```text
+Landing Page
+    |
+    v
+Address Input
+    |
+    v
+Map Creator
+    |
+    v
+Soft Family Nordic Preview
+    |
+    v
+Product / Price Preview
+    |
+    v
+Purchase Intent
+```
+
+### In Scope
+
+- Landing Page
+- Address Input
+- Map Creator
+- Stadia Maps + MapLibre
+- Maputnik Style
+- Layout
+- Title
+- Map Style
+- Map Position / Zoom
+- Hazard Layer
+- Shelter
+- Family Places
+- Product Preview
+- A2 / A1表示
+- Frame有無表示
+- 価格表示
+- 購入意向取得
+
+### Out of Scope
+
+- 本決済
+- Shopify Checkout
+- Printful自動連携
+- 本番印刷
+- マイページ
+- ユーザーアカウント
+
+---
+
+## 12. Shopify
+
+ShopifyはCommercial V1以降のCommerce Adapterとして利用する。
 
 ### Responsibilities
 
@@ -154,25 +448,77 @@ ShopifyはCommerce Adapterとして利用する。
 - 避難所検索
 - 地図生成ルール
 
-これにより将来、Commerce部分を自社ECや他チャネルへ変更しやすくする。
+### Map Config Link
+
+Commercial V1では、カート追加時に発行した `map_config_id` をShopify側へ渡す。
+
+```text
+Map Config
+    |
+    v
+map_config_id
+    |
+    v
+Shopify Cart / Order
+```
+
+注文成立後、そのIDから自社DBのMap Configを取得する。
 
 ---
 
-## 8. Printful
+## 13. Printful
 
-Printfulは印刷・Fulfillment Adapterとして利用する。
+PrintfulはCommercial V1以降のFulfillment Adapter候補とする。
 
-### Responsibilities
+### Future Flow
 
-- 印刷商品の受注
-- 印刷
-- 発送
+```text
+Shopify Order Created
+       |
+       v
+Webhook
+       |
+       v
+FastAPI
+       |
+       v
+map_config_id
+       |
+       v
+Map Config
+       |
+       v
+Print Renderer
+       |
+       v
+Printful API
+       |
+       v
+Manufacture / Shipping
+```
 
-注文成立後、必要な印刷データと注文情報を連携する。
+Validation ReleaseではPrintful自動連携を実装しない。
+
+印刷品質確認は、商品化フェーズに進むことが決まった時点で実施する。
 
 ---
 
-## 9. Repository Structure
+## 14. Digital Download
+
+デジタルダウンロード商品は将来候補として保持するが、Validation Releaseおよび初期Commercial V1の必須要件にはしない。
+
+理由:
+
+- Core Conceptは「飾るハザードマップ」
+- Physical Posterの方が日常的に目に入る価値と整合する
+- まず本命商品の需要を検証する
+- SKU / 権利 / ダウンロード配信などの追加複雑性を避ける
+
+需要検証後にEntry Productとして再評価する。
+
+---
+
+## 15. Repository Structure
 
 Monorepoを採用する。
 
@@ -182,16 +528,15 @@ hazardmap_project/
 ├── apps/
 │   ├── web/
 │   │   └── Next.js + TypeScript
-│   │
 │   └── api/
 │       └── FastAPI + Python
-│
 ├── docs/
 │   ├── requirements.md
 │   ├── architecture.md
 │   ├── decisions.md
-│   └── progress.md
-│
+│   ├── progress.md
+│   ├── screens.md
+│   └── persona_design.md
 ├── PROJECT_GUIDELINES.md
 ├── docker-compose.yml
 └── README.md
@@ -201,11 +546,9 @@ FrontendとBackendは分離するが、V1.0では別リポジトリにはしな�
 
 ---
 
-## 10. Deployment Principle
+## 16. Deployment Principle
 
 V1.0ではFrontendとBackendを別プロセスとしてデプロイできる構成にする。
-
-想定:
 
 ```text
 Next.js Hosting
@@ -217,11 +560,11 @@ FastAPI Hosting
 PostgreSQL + PostGIS
 ```
 
-具体的なホスティングサービスはPhase1またはPhase2でDecisionとして確定する。
+具体的なホスティングサービスは後続Decisionで確定する。
 
 ---
 
-## 11. Security Principle
+## 17. Security Principle
 
 最低限以下を守る。
 
@@ -230,41 +573,102 @@ PostgreSQL + PostGIS
 - Backend APIへの入力値検証を行う
 - 外部API失敗時のエラー処理を行う
 - 必要になるまで独自認証基盤を作らない
+- localStorageには決済情報やSecretを保存しない
 
 ---
 
-## 12. Architecture Boundaries
+## 18. Architecture Boundaries
 
 ### Next.js
-Presentation / User Interaction / Commerce UI
+Presentation / User Interaction / Draft State / Commerce UI
 
 ### FastAPI
-Domain Logic / Hazard Engine / GIS
+Domain Logic / Hazard Engine / GIS / Map Config Persistence
 
 ### PostgreSQL + PostGIS
 Persistent Data / Spatial Query
 
+### Stadia Maps
+Validation Map Data / Tiles
+
+### MapLibre GL JS
+Client-side Map Rendering / Interaction
+
+### Maputnik
+Map Style Authoring
+
 ### Shopify
-Commerce
+Commercial V1 Commerce
 
 ### Printful
-Fulfillment
-
-### Mapbox
-Map Visualization / Map-related external service
+Commercial V1 Fulfillment
 
 ---
 
-## 13. MVP Constraint
+## 19. MVP Constraint
 
-以下はV1.0開始時点では行わない。
+以下はValidation Release開始時点では行わない。
 
 - マイクロサービス分割
 - Kubernetes
 - Event-driven architectureの本格導入
 - 独自Commerce基盤
 - 独自認証基盤
+- マイページ
+- クラウド下書き保存
 - 不要なデータレイク
 - 全自治体データの事前統合
+- Printful自動連携
+- Digital Download販売
 
 必要になった時点でDecisionを追加する。
+
+---
+
+## 20. Validation to Commercial V1
+
+```text
+Phase 0
+Product Design
+✅ Complete
+
+Phase 1
+Architecture
+
+Phase 2
+Foundation
+
+Phase 3
+Map Creator
+
+-------------------------
+Validation Release
+-------------------------
+
+Landing Page
+Map Creator
+Product Preview
+Price
+Purchase Intent
+
+        |
+        v
+
+Value Validation
+
+        |
+        +---- Weak → Product / Positioning Review
+        |
+        └---- Strong
+               |
+               v
+       Commercial V1
+               |
+               +---- Map Provider Re-evaluation
+               +---- Shopify
+               +---- Print Renderer
+               +---- Printful
+               +---- Production QA
+```
+
+まず価値を検証し、Commerce / Fulfillmentへの本格投資は検証結果を見て判断する。

@@ -183,3 +183,235 @@ apps/api
 - V1.0ではRepository分割のメリットより運用負荷の方が大きい
 
 将来、独立開発チームや独立ライフサイクルが必要になった場合に再検討する。
+
+---
+
+# ADR-004: Validation版のMap PlatformにStadia Maps + MapLibreを採用する
+
+Status: Accepted
+
+Date: 2026-09-13
+
+## Context
+
+当初はMapboxを地図表示・地図スタイル・印刷用途の候補としていた。
+
+しかし現時点では、商用印刷時の利用条件、Commercial Print Rightsの費用、月間注文ボリューム、実際の販売規模が未確定であり、Mapboxへの正式な商用条件確認に必要な事業前提がまだ弱い。
+
+一方、現在のプロジェクトフェーズでは、Commerce / Fulfillmentを完成させることより、
+
+**「Soft Family Nordicデザインのカスタムハザードマップに購入価値があるか」**
+
+を検証することが優先される。
+
+## Decision
+
+Validation Releaseでは以下を採用する。
+
+```text
+Stadia Maps
++
+MapLibre GL JS
++
+Maputnik
+```
+
+役割は以下。
+
+- Stadia Maps: Map Data / Vector Tiles
+- MapLibre GL JS: Web地図表示・操作
+- Maputnik: Map Style作成
+
+Commercial V1へ進む前に、Stadia Maps継続またはMapbox移行を再評価する。
+
+## Reasons
+
+- Soft Family Nordicに必要な地図デザイン自由度を確保できる
+- MapLibre Style JSONとしてデザインを管理できる
+- MaputnikでGUIによるStyle編集ができる
+- Mapbox固定よりProvider Lock-inを抑えられる
+- 現時点の価値検証を止めずに進められる
+- 将来Mapboxを再評価できる
+
+## Consequences
+
+- architecture.mdのMapbox固定表現を廃止する
+- Map ConfigにはProvider固有情報を極力持たせない
+- Map StyleはStadia-compatibleなStyle JSONから開始する
+- Mapbox移行時にはStyle再構築が発生する可能性がある
+- Hazard EngineはMap Providerから独立させる
+
+---
+
+# ADR-005: V1ではマイページを作らずlocalStorageで途中再開する
+
+Status: Accepted
+
+Date: 2026-09-13
+
+## Context
+
+Map Creatorではユーザーが、住所、Layout、Title、Map Style、Map Position、Zoom、Hazard Layer、Shelter、Family Placesなどを編集する。
+
+想定作成時間は数分〜十数分程度であり、途中離脱から復帰できる価値はある。
+
+一方、途中保存のためだけに、ユーザー登録、Login、マイページ、クラウドDraft、複数端末同期を導入するとV1の開発範囲が大きくなる。
+
+## Decision
+
+V1ではマイページ・独自ユーザーアカウントを実装しない。
+
+作成途中のMap ConfigはFrontend Stateで保持し、localStorageへ自動保存する。
+
+同じ端末・同じブラウザでは作成再開を可能にする。
+
+## Reasons
+
+- 中断復帰というユーザー価値を低コストで提供できる
+- 認証基盤が不要
+- DBへDraftデータを大量保存しなくてよい
+- MVPの開発時間を抑えられる
+
+## Trade-offs
+
+- 別端末から再開できない
+- ブラウザデータ削除でDraftが消える
+- 複数Map管理ができない
+
+これらは需要確認後に再検討する。
+
+---
+
+# ADR-006: Map Configはカート追加時にDB保存する
+
+Status: Accepted
+
+Date: 2026-09-13
+
+## Context
+
+Map Creatorの状態を「次へ」のタイミングでDB保存すると、ブラウザバック、Preview確認だけ、購入しないユーザー、試し操作による不要なMap Configが大量に残る可能性がある。
+
+## Decision
+
+Map CreatorおよびProduct Configuration中は、Frontend State + localStorageで保持する。
+
+Commercial V1では、ユーザーが **カートに追加** した時点で初めてMap ConfigをDB保存する。
+
+保存時に `map_config_id` を発行する。
+
+## Future Commerce Flow
+
+```text
+Map Config
+    |
+    | Add to Cart
+    v
+FastAPI
+    |
+    v
+PostgreSQL
+    |
+    v
+map_config_id
+    |
+    v
+Shopify Cart / Order
+```
+
+## Pending Data
+
+注文成立前はMap Configを `pending` として扱う。
+
+購入されなかったpendingデータについては、一定期間後に削除可能な設計とする。
+
+## Consequences
+
+- 「次へ」ではDB書き込みをしない
+- Validation Releaseでは原則localStorageのみでよい
+- Shopify導入時にmap_config_idを注文情報へ連携する
+- DB保存量を購入意向のあるユーザー中心に抑える
+
+---
+
+# ADR-007: Commercial V1前にValidation Releaseを設ける
+
+Status: Accepted
+
+Date: 2026-09-13
+
+## Context
+
+当初は5か月でShopify・Printfulまで含めた完全なV1販売を目標としていた。
+
+しかし現時点では、商品コンセプトへの需要、Soft Family Nordicデザインへの評価、想定価格での購入意向がまだ検証されていない。
+
+この状態でCommerce / Fulfillmentまで先に構築すると、価値が未検証の状態で開発投資が大きくなる。
+
+## Decision
+
+Commercial V1より前にValidation Releaseを設ける。
+
+Validation Releaseでは以下を検証する。
+
+```text
+Landing Page
+↓
+Address Input
+↓
+Map Creator
+↓
+Product Preview
+↓
+A2 / A1
+↓
+Frame有無
+↓
+Price
+↓
+Purchase Intent
+```
+
+本決済・Shopify・Printful自動連携は必須としない。
+
+## Primary Validation Question
+
+**「このデザイン・機能・価格のカスタムハザードマップを実際に欲しいと思うか」**
+
+## Consequences
+
+Validation結果が弱い場合は、Commerce開発前にProduct、Positioning、Design、Price、Target Personaを見直す。
+
+Validation結果が強い場合はCommercial V1へ進む。
+
+---
+
+# ADR-008: Digital Download商品は初期V1では実装しない
+
+Status: Accepted
+
+Date: 2026-09-13
+
+## Context
+
+Physical Posterより低価格なEntry Productとして、Mapデータのみを購入・ダウンロードできる商品案を検討した。
+
+一方、本サービスのCore Conceptは、
+
+**「飾るハザードマップ」**
+
+であり、Physical Posterとして日常空間に存在すること自体が価値の一部である。
+
+## Decision
+
+Digital Downloadは将来候補として残すが、Validation Releaseおよび初期Commercial V1の必須要件には含めない。
+
+## Reasons
+
+- Physical Posterの価値検証を優先する
+- SKUを増やさない
+- Download配信実装を追加しない
+- 地図利用権利の確認範囲を増やさない
+- Core Conceptを明確に保つ
+
+需要が確認できた場合、Entry Productとして再評価する。
