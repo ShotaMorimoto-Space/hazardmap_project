@@ -6,3 +6,4 @@ __pycache__/
 # 公的GISデータは公式配布元から再生成できるためGit管理しない
 data/raw/**
 data/processed/**
+data/tiles/**

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hyogo PMTiles Validation</title>
+    <link
+      href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+      rel="stylesheet"
+    />
+    <style>
+      html,
+      body,
+      #map {
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+      #panel {
+        position: absolute;
+        z-index: 1;
+        top: 12px;
+        left: 12px;
+        background: rgba(255, 255, 255, 0.92);
+        padding: 10px 12px;
+        border-radius: 8px;
+        font: 13px/1.4 system-ui, sans-serif;
+        max-width: 320px;
+      }
+      label {
+        display: block;
+        margin: 4px 0;
+      }
+      #status {
+        margin-top: 8px;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="panel">
+      <strong>Hyogo PMTiles Validation</strong>
+      <p>仮色のみ。色は Style 側で設定。Validation zoom: 11–14</p>
+      <label><input type="checkbox" id="flood" checked /> flood</label>
+      <label><input type="checkbox" id="landslide" checked /> landslide</label>
+      <label><input type="checkbox" id="tsunami" checked /> tsunami</label>
+      <div id="status">loading…</div>
+    </div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
+    <script>
+      const protocol = new pmtiles.Protocol();
+      maplibregl.addProtocol("pmtiles", protocol.tile);
+
+      // 外部ベースマップに依存せず load を確定させる（Validation専用）
+      const map = new maplibregl.Map({
+        container: "map",
+        style: {
+          version: 8,
+          sources: {},
+          layers: [
+            {
+              id: "background",
+              type: "background",
+              paint: { "background-color": "#e8eef2" },
+            },
+          ],
+        },
+        center: [134.9, 34.7],
+        zoom: 12,
+        minZoom: 11,
+        maxZoom: 14,
+      });
+      window.map = map;
+
+      const tileBase = `${window.location.origin}/data/tiles/hyogo`;
+      const layers = [
+        {
+          id: "flood",
+          url: `pmtiles://${tileBase}/flood.pmtiles`,
+          color: "#4ea8de",
+        },
+        {
+          id: "landslide",
+          url: `pmtiles://${tileBase}/landslide.pmtiles`,
+          color: "#c47b2d",
+        },
+        {
+          id: "tsunami",
+          url: `pmtiles://${tileBase}/tsunami.pmtiles`,
+          color: "#2a6fdb",
+        },
+      ];
+
+      map.on("load", () => {
+        for (const layer of layers) {
+          map.addSource(layer.id, {
+            type: "vector",
+            url: layer.url,
+            minzoom: 11,
+            maxzoom: 14,
+          });
+          map.addLayer({
+            id: `${layer.id}-fill`,
+            type: "fill",
+            source: layer.id,
+            "source-layer": layer.id,
+            paint: {
+              "fill-color": layer.color,
+              "fill-opacity": 0.4,
+            },
+          });
+          map.addLayer({
+            id: `${layer.id}-outline`,
+            type: "line",
+            source: layer.id,
+            "source-layer": layer.id,
+            paint: {
+              "line-color": layer.color,
+              "line-width": 0.6,
+              "line-opacity": 0.7,
+            },
+          });
+
+          document.getElementById(layer.id).addEventListener("change", (event) => {
+            const visibility = event.target.checked ? "visible" : "none";
+            map.setLayoutProperty(`${layer.id}-fill`, "visibility", visibility);
+            map.setLayoutProperty(`${layer.id}-outline`, "visibility", visibility);
+          });
+        }
+
+        const refreshStatus = () => {
+          const flood = map.querySourceFeatures("flood", { sourceLayer: "flood" });
+          const landslide = map.querySourceFeatures("landslide", {
+            sourceLayer: "landslide",
+          });
+          const tsunami = map.querySourceFeatures("tsunami", {
+            sourceLayer: "tsunami",
+          });
+          document.getElementById("status").textContent =
+            `z=${map.getZoom().toFixed(1)} flood=${flood.length} landslide=${landslide.length} tsunami=${tsunami.length}` +
+            (flood[0]
+              ? ` | sample flood=${JSON.stringify(flood[0].properties)}`
+              : "");
+        };
+
+        // flood z11–12 はタイルが大きく idle が遅いことがあるため、render でも更新する
+        map.on("idle", refreshStatus);
+        map.on("render", () => {
+          if (map.areTilesLoaded()) refreshStatus();
+        });
+        map.on("error", (event) => {
+          document.getElementById("status").textContent =
+            `map error: ${event.error?.message || event.error}`;
+        });
+        refreshStatus();
+      });
+    </script>
+  </body>
+</html>

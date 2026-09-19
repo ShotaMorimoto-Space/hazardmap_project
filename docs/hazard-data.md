@@ -218,6 +218,84 @@ processedへの採用ルールは「同一地域に複数年度がある場合�
 
 県別原本に「池田市立北豊島中学校」（住所は大阪府池田市）が両区分で各1件含まれる。兵庫県配布原本の内容を独自判断で削除せず、そのまま保持した。公開データが最新でない、または未掲載施設が存在する場合があるため、実運用時は各市町村の最新情報を確認する必要がある。
 
+## Web配信方式（Vector PMTiles）
+
+### 方針
+
+- GeoJSON（`data/processed/hyogo/`）は中間データである
+- Web配信・MapLibre表示には Vector PMTiles（`data/tiles/hyogo/`）を使用する
+- Flood / Landslide / Tsunami を PMTiles 化する
+- Shelter は当面 GeoJSON のままとする（Point件数が少なく、直読でも現実的）
+- PMTiles には地理情報と属性のみを保持する。色・透明度は MapLibre Style 側で設定する
+- Validation では Tile Server（Martin 等）や本番 Object Storage / CDN は導入しない
+- ローカル HTTP Server で Range Request により PMTiles を配信して検証する
+
+### 再生成
+
+前提: `tippecanoe`（Homebrew: `brew install tippecanoe`）
+
+```bash
+./scripts/build_hyogo_pmtiles.sh
+# 必要なら MIN_ZOOM / MAX_ZOOM を上書き可能
+# MIN_ZOOM=11 MAX_ZOOM=14 ./scripts/build_hyogo_pmtiles.sh
+```
+
+PMTiles は表示専用。公的ハザード区域の基準データは `data/processed/hyogo/*.geojson` を正とする。
+
+最終Tippecanoe方針（2026-09-20 再生成）:
+
+- Feature を意図的に drop しない（`--drop-densest-as-needed` 等は不使用）
+- coalesce しない（異なる属性の結合を避けるため `--coalesce-*` も不使用）
+- 不要属性は `--include` で絞る
+- Validation 想定 zoom は **11–14**（`-Z 11 -z 14`）。低ズームの全域俯瞰タイルは作らない
+- max zoom では `--no-tiny-polygon-reduction-at-maximum-zoom` と `--simplify-only-low-zooms` で元geometryを優先
+- タイル肥大時も欠落させないため `--no-feature-limit` / `--no-tile-size-limit` を使用
+- `--detect-shared-borders` は境界の見た目改善用（属性は変更しない）
+
+### Validation結果（2026-09-20 再生成）
+
+| データ | GeoJSON | PMTiles | minzoom | maxzoom | layer | tilestats feature数 | 元GeoJSON件数 |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| Flood | 961 MB | 59 MB | 11 | 14 | `flood` | 902,748 | 902,748 |
+| Landslide | 54 MB | 8.8 MB | 11 | 14 | `landslide` | 38,189 | 38,189 |
+| Tsunami | 51 MB | 3.7 MB | 11 | 14 | `tsunami` | 67,420 | 67,420 |
+
+tippecanoe ログに `Keeping the sparsest` / drop 系メッセージは無し。tilestats の feature 数は元 GeoJSON と一致。
+
+Tileサイズ（gzip圧縮後、bbox内）:
+
+| layer | z | tiles | median | p95 | max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Flood | 11 | 57 | 146 KB | 617 KB | **978 KB** |
+| Flood | 12 | 168 | 63 KB | 207 KB | 649 KB |
+| Flood | 13 | 553 | 18 KB | 91 KB | 215 KB |
+| Flood | 14 | 1674 | 7 KB | 34 KB | 97 KB |
+| Landslide | 11–14 | — | 1.6–28 KB | — | 最大約64 KB |
+| Tsunami | 11–14 | — | 2–19 KB | — | 最大約135 KB |
+
+z11 の Flood は一部タイルが約1MBになり MapLibre の idle が遅くなるが、Polygon 表示と主要属性取得は可能。z13–14 は実用的。MapLibre 検証ページで flood / landslide / tsunami の仮色 Polygon と `level` / `category` 等を確認済み。
+
+保持属性の例:
+
+- Flood: `hazard_type`, `scenario`, `category`, `level`, `depth_rank`, `river_name`, `river_code`, `danger_zone_code`
+- Landslide: `hazard_type`, `category`, `zone_type`, `zone_name`, `zone_number`, `prefecture_code`
+- Tsunami: `hazard_type`, `level`, `data_year`, `prefecture_code`, `prefecture_name`
+
+Shelter は PMTiles 化していない（`shelter.geojson` のまま）。
+
+### MapLibre 検証
+
+```bash
+python3 scripts/serve_validation.py --port 8080
+# ブラウザで http://127.0.0.1:8080/validation/pmtiles-map.html
+```
+
+`scripts/serve_validation.py` は PMTiles に必要な HTTP Range Request（206）に対応する。`validation/pmtiles-map.html` は zoom 11–14 で `pmtiles` protocol 経由の仮色 fill 表示を確認する最小ページである。
+
+### Git
+
+`data/raw/**`、`data/processed/**`、`data/tiles/**` は Git 管理対象外。再生成スクリプトとドキュメントを Single Source of Truth とする。
+
 ## 利用条件
 
 国土数値情報は各データページのコンテンツ利用規約と都道府県別条件に従う。兵庫県の今回使用分はオープンデータとして提供されている。避難所データは国土地理院コンテンツ利用規約およびrawに保存した「ご利用上の注意」に従う。
