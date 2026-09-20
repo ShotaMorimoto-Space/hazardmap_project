@@ -594,6 +594,26 @@ Validation Map Data / Tiles
 ### MapLibre GL JS
 Client-side Map Rendering / Interaction
 
+### Validation Map Composition（ローカル HTML）
+
+Next.js (`apps/web`) 導入前の最小確認用。`validation/map-creator.html` + `scripts/serve_validation.py`。
+
+```text
+Stadia Maps
+      +
+Vector PMTiles
+      +
+Shelter GeoJSON
+      +
+Home Marker
+      ↓
+   MapLibre
+```
+
+- Hazard Layer は最大1種類
+- Validation 初期 zoom は 13（min 11 / max 14）
+- PMTiles 単体検証は `validation/pmtiles-map.html` を維持
+
 ### Maputnik
 Map Style Authoring
 

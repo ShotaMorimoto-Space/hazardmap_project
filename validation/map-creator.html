@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Map Creator Validation</title>
+    <link
+      href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+      rel="stylesheet"
+    />
+    <style>
+      html,
+      body,
+      #map {
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+      #panel {
+        position: absolute;
+        z-index: 2;
+        top: 12px;
+        left: 12px;
+        background: rgba(255, 255, 255, 0.94);
+        padding: 12px 14px;
+        border-radius: 8px;
+        font: 13px/1.45 system-ui, sans-serif;
+        max-width: 300px;
+        box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12);
+      }
+      #panel h1 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+      #panel h2 {
+        margin: 10px 0 4px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #445;
+        letter-spacing: 0.06em;
+      }
+      #panel p {
+        margin: 0 0 6px;
+        color: #334;
+      }
+      label {
+        display: block;
+        margin: 3px 0;
+      }
+      #status {
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid #dde;
+        font-size: 12px;
+        color: #223;
+        word-break: break-word;
+      }
+      #status.error {
+        color: #a11;
+        white-space: pre-wrap;
+      }
+      .home-marker {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #c0392b;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+      }
+      #stadia-key-row {
+        margin-top: 6px;
+      }
+      #stadia-key-row input {
+        width: 100%;
+        box-sizing: border-box;
+        font: 12px/1.3 ui-monospace, monospace;
+        padding: 4px 6px;
+      }
+      #stadia-key-row button {
+        margin-top: 4px;
+        font: 12px system-ui, sans-serif;
+      }
+      .hint {
+        font-size: 11px;
+        color: #667;
+        margin: 2px 0 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="panel">
+      <h1>MAP CREATOR VALIDATION</h1>
+
+      <h2>LOCATION</h2>
+      <p>兵庫県伊丹市（Validation）</p>
+
+      <h2>HAZARD</h2>
+      <label><input type="radio" name="hazard" value="none" /> None</label>
+      <label
+        ><input type="radio" name="hazard" value="flood" checked /> Flood</label
+      >
+      <label
+        ><input type="radio" name="hazard" value="landslide" /> Landslide</label
+      >
+      <label
+        ><input type="radio" name="hazard" value="tsunami" /> Tsunami</label
+      >
+
+      <h2>SHELTER</h2>
+      <label
+        ><input type="checkbox" id="shelter-toggle" checked /> Show
+        shelters</label
+      >
+
+      <h2>STADIA KEY（任意）</h2>
+      <p class="hint">
+        localhost / 127.0.0.1 では通常キー不要。429時や非localhost用にのみ入力（Repositoryには保存しない / localStorage）。
+      </p>
+      <div id="stadia-key-row">
+        <input
+          id="stadia-key"
+          type="password"
+          autocomplete="off"
+          placeholder="任意: Stadia API Key"
+        />
+        <button type="button" id="stadia-apply">Apply &amp; reload style</button>
+      </div>
+
+      <div id="status">initializing…</div>
+    </div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
+    <script>
+      // Validation固定地点: 兵庫県伊丹市周辺
+      const HOME = { lng: 135.4, lat: 34.78 };
+      const STADIA_STYLE_BASE =
+        "https://tiles.stadiamaps.com/styles/alidade_smooth.json";
+      const STORAGE_KEY = "hazardmap_stadia_api_key";
+
+      const protocol = new pmtiles.Protocol();
+      maplibregl.addProtocol("pmtiles", protocol.tile);
+
+      const statusEl = document.getElementById("status");
+      const errors = [];
+      const warnings = [];
+
+      function setStatus(text, isError) {
+        statusEl.textContent = text;
+        statusEl.classList.toggle("error", !!isError);
+      }
+
+      function pushError(msg) {
+        errors.push(msg);
+        console.error(msg);
+        setStatus([...warnings, ...errors].join("\n"), true);
+      }
+
+      function pushWarning(msg) {
+        warnings.push(msg);
+        console.warn(msg);
+      }
+
+      function resolveStadiaKey() {
+        const params = new URLSearchParams(window.location.search);
+        const fromQuery =
+          params.get("stadia_key") ||
+          params.get("api_key") ||
+          params.get("STADIA_API_KEY");
+        if (fromQuery) {
+          try {
+            localStorage.setItem(STORAGE_KEY, fromQuery);
+          } catch (_) {}
+          return fromQuery;
+        }
+        try {
+          return localStorage.getItem(STORAGE_KEY) || "";
+        } catch (_) {
+          return "";
+        }
+      }
+
+      function stadiaStyleUrl(apiKey) {
+        if (!apiKey) return STADIA_STYLE_BASE;
+        const url = new URL(STADIA_STYLE_BASE);
+        url.searchParams.set("api_key", apiKey);
+        return url.toString();
+      }
+
+      // Flood level 仮色（正式デザインではない。Style側のみで色を持つ）
+      const FLOOD_FILL_COLOR = [
+        "match",
+        ["get", "level"],
+        "0m-0.5m",
+        "#c6dbef",
+        "0.5m-3m",
+        "#6baed6",
+        "3m-5m",
+        "#3182bd",
+        "5m-10m",
+        "#08519c",
+        "10m-20m",
+        "#08306b",
+        "20m+",
+        "#041c3a",
+        "#9ecae1",
+      ];
+
+      const HAZARD_DEFS = {
+        flood: {
+          sourceId: "flood",
+          sourceLayer: "flood",
+          file: "flood.pmtiles",
+          fillPaint: {
+            "fill-color": FLOOD_FILL_COLOR,
+            "fill-opacity": 0.55,
+          },
+          linePaint: {
+            "line-color": "#08519c",
+            "line-width": 0.5,
+            "line-opacity": 0.65,
+          },
+        },
+        landslide: {
+          sourceId: "landslide",
+          sourceLayer: "landslide",
+          file: "landslide.pmtiles",
+          fillPaint: {
+            "fill-color": "#c47b2d",
+            "fill-opacity": 0.45,
+          },
+          linePaint: {
+            "line-color": "#8a5418",
+            "line-width": 0.6,
+            "line-opacity": 0.7,
+          },
+        },
+        tsunami: {
+          sourceId: "tsunami",
+          sourceLayer: "tsunami",
+          file: "tsunami.pmtiles",
+          fillPaint: {
+            "fill-color": "#2a6fdb",
+            "fill-opacity": 0.45,
+          },
+          linePaint: {
+            "line-color": "#1a4fa0",
+            "line-width": 0.6,
+            "line-opacity": 0.7,
+          },
+        },
+      };
+
+      const tileBase = `${window.location.origin}/data/tiles/hyogo`;
+      const shelterUrl = `${window.location.origin}/data/processed/hyogo/shelter.geojson`;
+
+      let apiKey = resolveStadiaKey();
+      document.getElementById("stadia-key").value = apiKey ? "••••••••" : "";
+
+      const map = new maplibregl.Map({
+        container: "map",
+        style: stadiaStyleUrl(apiKey),
+        center: [HOME.lng, HOME.lat],
+        zoom: 13,
+        minZoom: 11,
+        maxZoom: 14,
+        attributionControl: true,
+      });
+      window.map = map;
+
+      map.addControl(new maplibregl.NavigationControl(), "bottom-right");
+
+      map.on("error", (event) => {
+        const msg = event.error?.message || String(event.error || event);
+        // Stadia 401 などを拾う
+        if (/401|403|Unauthorized|Failed to fetch|stile|stadia/i.test(msg)) {
+          pushError(`Stadia / style error: ${msg}`);
+        } else if (/pmtiles|flood|landslide|tsunami/i.test(msg)) {
+          pushError(`PMTiles error: ${msg}`);
+        } else {
+          pushError(`Map error: ${msg}`);
+        }
+      });
+
+      function firstSymbolLayerId() {
+        const layers = map.getStyle()?.layers || [];
+        const symbol = layers.find((layer) => layer.type === "symbol");
+        return symbol?.id;
+      }
+
+      function addHazardLayers(beforeId) {
+        for (const [key, def] of Object.entries(HAZARD_DEFS)) {
+          if (!map.getSource(def.sourceId)) {
+            map.addSource(def.sourceId, {
+              type: "vector",
+              url: `pmtiles://${tileBase}/${def.file}`,
+              minzoom: 11,
+              maxzoom: 14,
+            });
+          }
+
+          const fillId = `${key}-fill`;
+          const outlineId = `${key}-outline`;
+          if (!map.getLayer(fillId)) {
+            map.addLayer(
+              {
+                id: fillId,
+                type: "fill",
+                source: def.sourceId,
+                "source-layer": def.sourceLayer,
+                layout: { visibility: "none" },
+                paint: def.fillPaint,
+              },
+              beforeId
+            );
+          }
+          if (!map.getLayer(outlineId)) {
+            map.addLayer(
+              {
+                id: outlineId,
+                type: "line",
+                source: def.sourceId,
+                "source-layer": def.sourceLayer,
+                layout: { visibility: "none" },
+                paint: def.linePaint,
+              },
+              beforeId
+            );
+          }
+        }
+      }
+
+      async function addShelterLayer() {
+        try {
+          const res = await fetch(shelterUrl);
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          const geojson = await res.json();
+          if (!map.getSource("shelter")) {
+            map.addSource("shelter", { type: "geojson", data: geojson });
+          }
+          if (!map.getLayer("shelter-circle")) {
+            // Shelter は Stadia labels の上（最前面寄り）に置く
+            map.addLayer({
+              id: "shelter-circle",
+              type: "circle",
+              source: "shelter",
+              paint: {
+                "circle-radius": 4,
+                "circle-color": "#1b7f4a",
+                "circle-stroke-width": 1,
+                "circle-stroke-color": "#ffffff",
+                "circle-opacity": 0.9,
+              },
+            });
+          }
+          return geojson.features?.length ?? 0;
+        } catch (err) {
+          pushError(`Shelter GeoJSON読込失敗: ${err.message || err}`);
+          return 0;
+        }
+      }
+
+      function setHazardVisibility(selected) {
+        for (const key of Object.keys(HAZARD_DEFS)) {
+          const visible = selected === key ? "visible" : "none";
+          if (map.getLayer(`${key}-fill`)) {
+            map.setLayoutProperty(`${key}-fill`, "visibility", visible);
+          }
+          if (map.getLayer(`${key}-outline`)) {
+            map.setLayoutProperty(`${key}-outline`, "visibility", visible);
+          }
+        }
+      }
+
+      function setShelterVisibility(show) {
+        if (map.getLayer("shelter-circle")) {
+          map.setLayoutProperty(
+            "shelter-circle",
+            "visibility",
+            show ? "visible" : "none"
+          );
+        }
+      }
+
+      function refreshStatus(shelterCount) {
+        const selected =
+          document.querySelector('input[name="hazard"]:checked')?.value ||
+          "none";
+        const shelterOn = document.getElementById("shelter-toggle").checked;
+        const counts = {};
+        for (const key of Object.keys(HAZARD_DEFS)) {
+          try {
+            counts[key] = map.querySourceFeatures(key, {
+              sourceLayer: key,
+            }).length;
+          } catch (_) {
+            counts[key] = 0;
+          }
+        }
+        let sample = "";
+        if (selected === "flood" && counts.flood > 0) {
+          const feat = map.querySourceFeatures("flood", {
+            sourceLayer: "flood",
+          })[0];
+          if (feat?.properties?.level) {
+            sample = ` | flood.level=${feat.properties.level}`;
+          }
+        }
+        const line =
+          `z=${map.getZoom().toFixed(1)} hazard=${selected}` +
+          ` flood=${counts.flood} landslide=${counts.landslide} tsunami=${counts.tsunami}` +
+          ` shelter=${shelterOn ? "on" : "off"}` +
+            (shelterCount != null ? `(${shelterCount})` : "") +
+          sample +
+          (apiKey ? " | stadia=key" : " | stadia=localhost-keyless");
+        if (errors.length || warnings.length) {
+          setStatus([...warnings, ...errors, line].join("\n"), errors.length > 0);
+        } else {
+          setStatus(line, false);
+        }
+      }
+
+      let shelterFeatureCount = null;
+      let overlaysReady = false;
+
+      async function setupOverlays() {
+        const beforeId = firstSymbolLayerId();
+        addHazardLayers(beforeId);
+        shelterFeatureCount = await addShelterLayer();
+        overlaysReady = true;
+
+        const selected =
+          document.querySelector('input[name="hazard"]:checked')?.value ||
+          "flood";
+        setHazardVisibility(selected);
+        setShelterVisibility(
+          document.getElementById("shelter-toggle").checked
+        );
+        refreshStatus(shelterFeatureCount);
+      }
+
+      map.on("load", () => {
+        setupOverlays().catch((err) => {
+          pushError(`Overlay setup failed: ${err.message || err}`);
+        });
+      });
+
+      // Style JSON は取れるがタイルが失敗する場合のフォールバック検知
+      map.once("idle", () => {
+        if (!apiKey) {
+          // キー無しでもlocalhostなら通常OK。失敗時のみ警告は error ハンドラ側。
+        }
+      });
+
+      // Home Marker（DOM Markerは常に最前面）
+      const homeEl = document.createElement("div");
+      homeEl.className = "home-marker";
+      homeEl.title = "Home (Validation)";
+      const homeMarker = new maplibregl.Marker({ element: homeEl })
+        .setLngLat([HOME.lng, HOME.lat])
+        .addTo(map);
+      window.homeMarker = homeMarker;
+
+      document.querySelectorAll('input[name="hazard"]').forEach((input) => {
+        input.addEventListener("change", (event) => {
+          if (!overlaysReady) return;
+          setHazardVisibility(event.target.value);
+          refreshStatus(shelterFeatureCount);
+        });
+      });
+
+      document
+        .getElementById("shelter-toggle")
+        .addEventListener("change", (event) => {
+          if (!overlaysReady) return;
+          setShelterVisibility(event.target.checked);
+          refreshStatus(shelterFeatureCount);
+        });
+
+      document.getElementById("stadia-apply").addEventListener("click", () => {
+        const input = document.getElementById("stadia-key");
+        const raw = input.value.trim();
+        if (!raw || raw === "••••••••") {
+          pushError("Stadia API Key を入力してください。");
+          return;
+        }
+        try {
+          localStorage.setItem(STORAGE_KEY, raw);
+        } catch (_) {}
+        // Queryからも消してリロード（キーをURLに残さない）
+        const url = new URL(window.location.href);
+        url.searchParams.delete("stadia_key");
+        url.searchParams.delete("api_key");
+        url.searchParams.delete("STADIA_API_KEY");
+        window.location.href = url.toString();
+      });
+
+      map.on("idle", () => {
+        if (overlaysReady) refreshStatus(shelterFeatureCount);
+      });
+    </script>
+  </body>
+</html>

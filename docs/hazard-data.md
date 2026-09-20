@@ -290,7 +290,39 @@ python3 scripts/serve_validation.py --port 8080
 # ブラウザで http://127.0.0.1:8080/validation/pmtiles-map.html
 ```
 
-`scripts/serve_validation.py` は PMTiles に必要な HTTP Range Request（206）に対応する。`validation/pmtiles-map.html` は zoom 11–14 で `pmtiles` protocol 経由の仮色 fill 表示を確認する最小ページである。
+`scripts/serve_validation.py` は PMTiles に必要な HTTP Range Request（206）に対応する。
+
+- `validation/pmtiles-map.html` … PMTiles 単体検証（空白背景 + 仮色）
+- `validation/map-creator.html` … Map Creator 最小構成の統合検証
+
+```bash
+python3 scripts/serve_validation.py --port 8080
+# http://127.0.0.1:8080/validation/map-creator.html
+# Stadia は localhost / 127.0.0.1 では通常 API Key 不要（キーは Repository に含めない）
+# 429 時や非 localhost 用のみ UI / ?stadia_key= / localStorage で一時指定
+```
+
+### Validation Map Composition
+
+```text
+Stadia Maps (Alidade Smooth)
+      +
+Vector PMTiles (Flood / Landslide / Tsunami のいずれか1種)
+      +
+Shelter GeoJSON
+      +
+Home Marker
+      ↓
+   MapLibre GL JS
+```
+
+方針:
+
+- Hazard Layer は最大1種類（None / Flood / Landslide / Tsunami）
+- 初期 zoom は **13**（操作範囲 11–14）
+- 色は MapLibre Style 側のみ（Flood は `level` 属性で仮色分け）
+- Shelter は GeoJSON のまま（今回は PMTiles 化しない）
+- Stadia の最初の `symbol` Layer より下に Hazard Fill/Outline を差し込み、地名ラベルを読めるようにする
 
 ### Git
 
