@@ -4,11 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl, { type Map } from "maplibre-gl";
 import { Protocol } from "pmtiles";
 import "maplibre-gl/dist/maplibre-gl.css";
+import AddressSearch from "./AddressSearch";
+import { searchAddress, type HomeLocation } from "@/lib/stadiaGeocode";
 import styles from "./MapCreator.module.css";
 
 export type HazardType = "none" | "flood" | "landslide" | "tsunami";
 
-const HOME = { lng: 135.4, lat: 34.78 } as const;
+// 初期表示用（Validation）。Hazard/Shelter PMTiles は兵庫県のみ。
+const INITIAL_HOME: HomeLocation = { lng: 135.4, lat: 34.78 };
+const INITIAL_ADDRESS = "兵庫県伊丹市（Validation）";
 const STADIA_STYLE_BASE =
   "https://tiles.stadiamaps.com/styles/alidade_smooth.json";
 
@@ -126,6 +130,12 @@ export default function MapCreator() {
   const [status, setStatus] = useState("initializing…");
   const [error, setError] = useState<string | null>(null);
 
+  const [addressInput, setAddressInput] = useState("");
+  const [currentAddress, setCurrentAddress] = useState(INITIAL_ADDRESS);
+  const [homeLocation, setHomeLocation] = useState<HomeLocation>(INITIAL_HOME);
+  const [geocodingLoading, setGeocodingLoading] = useState(false);
+  const [geocodingError, setGeocodingError] = useState<string | null>(null);
+
   const hazardLayerRef = useRef(hazardLayer);
   const showSheltersRef = useRef(showShelters);
   hazardLayerRef.current = hazardLayer;
@@ -144,7 +154,7 @@ export default function MapCreator() {
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
       style: stadiaStyleUrl(),
-      center: [HOME.lng, HOME.lat],
+      center: [INITIAL_HOME.lng, INITIAL_HOME.lat],
       zoom: 13,
       minZoom: 11,
       maxZoom: 14,
@@ -163,9 +173,9 @@ export default function MapCreator() {
 
     const homeEl = document.createElement("div");
     homeEl.className = styles.homeMarker;
-    homeEl.title = "Home (Validation)";
+    homeEl.title = "Home";
     homeMarkerRef.current = new maplibregl.Marker({ element: homeEl })
-      .setLngLat([HOME.lng, HOME.lat])
+      .setLngLat([INITIAL_HOME.lng, INITIAL_HOME.lat])
       .addTo(map);
 
     const addHazardLayers = (beforeId?: string) => {
@@ -374,13 +384,62 @@ export default function MapCreator() {
     }
   }, [showShelters]);
 
+  const handleAddressSearch = async () => {
+    if (geocodingLoading) return;
+    setGeocodingError(null);
+    setGeocodingLoading(true);
+
+    try {
+      const result = await searchAddress(addressInput);
+      if (!result.ok) {
+        if (result.error.kind === "empty") {
+          setGeocodingError("住所を入力してください。");
+        } else if (result.error.kind === "no_result") {
+          setGeocodingError(
+            "住所が見つかりませんでした。\n住所を確認してもう一度お試しください。"
+          );
+        } else {
+          setGeocodingError(
+            "住所検索に失敗しました。\n時間をおいてもう一度お試しください。"
+          );
+        }
+        return;
+      }
+
+      const { location, label } = result.value;
+      const map = mapRef.current;
+      // Map 未準備でも State は更新可だが、移動は Map instance があるときのみ
+      if (map) {
+        map.flyTo({
+          center: [location.lng, location.lat],
+          zoom: 13,
+        });
+      }
+      homeMarkerRef.current?.setLngLat([location.lng, location.lat]);
+      setHomeLocation(location);
+      setCurrentAddress(label);
+      setGeocodingError(null);
+    } finally {
+      setGeocodingLoading(false);
+    }
+  };
+
   return (
     <div className={styles.root}>
       <aside className={styles.panel}>
         <h1>MAP CREATOR</h1>
 
         <h2>LOCATION</h2>
-        <p>兵庫県伊丹市（Validation）</p>
+        <AddressSearch
+          addressInput={addressInput}
+          currentAddress={currentAddress}
+          loading={geocodingLoading}
+          error={geocodingError}
+          onAddressChange={setAddressInput}
+          onSubmit={() => {
+            void handleAddressSearch();
+          }}
+        />
 
         <h2>HAZARD</h2>
         {(
@@ -414,7 +473,9 @@ export default function MapCreator() {
         </label>
 
         <div className={styles.status} data-error={error ? "true" : "false"}>
-          {error ? error : status}
+          {error
+            ? error
+            : `${status} | home=${homeLocation.lng.toFixed(5)},${homeLocation.lat.toFixed(5)}`}
         </div>
       </aside>
       <div ref={mapContainerRef} className={styles.map} />

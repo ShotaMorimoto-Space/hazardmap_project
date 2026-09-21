@@ -640,6 +640,26 @@ Browser: `http://localhost:3000/map-creator`
 - PMTiles を `apps/web/public/` へコピーしない
 - Stadia API Key は Repository にハードコードしない（localhostは通常不要）
 
+### Validation Geocoding
+
+```text
+Address
+  ↓
+Stadia Forward Geocoding
+  (https://api.stadiamaps.com/geocoding/v1/search)
+  ↓
+{lng, lat} + label
+  ↓
+MapLibre flyTo
+  ↓
+Home Marker update
+```
+
+- Validation Geocoder = **Stadia Maps**
+- Commercial V1 前に Provider / Pricing / Accuracy を再評価する
+- Geocoding は Frontend の座標取得のみ。Hazard 区域判定は FastAPI + PostGIS（未実装）へ分離する
+- 現在の Hazard / Shelter データは兵庫県のみのため、県外住所へ移動すると表示されない場合がある
+
 ### Maputnik
 Map Style Authoring
 
