@@ -293,7 +293,8 @@ python3 scripts/serve_validation.py --port 8080
 `scripts/serve_validation.py` は PMTiles に必要な HTTP Range Request（206）に対応する。
 
 - `validation/pmtiles-map.html` … PMTiles 単体検証（空白背景 + 仮色）
-- `validation/map-creator.html` … Map Creator 最小構成の統合検証
+- `validation/map-creator.html` … Map Creator 最小構成の統合検証（技術検証用HTML）
+- `apps/web` … **実際のFrontend Application**（Next.js）。`/map-creator` で同様の地図構成を実装
 
 ```bash
 python3 scripts/serve_validation.py --port 8080

@@ -596,7 +596,7 @@ Client-side Map Rendering / Interaction
 
 ### Validation Map Composition（ローカル HTML）
 
-Next.js (`apps/web`) 導入前の最小確認用。`validation/map-creator.html` + `scripts/serve_validation.py`。
+技術検証用。`validation/map-creator.html` + `scripts/serve_validation.py`。
 
 ```text
 Stadia Maps
@@ -613,6 +613,32 @@ Home Marker
 - Hazard Layer は最大1種類
 - Validation 初期 zoom は 13（min 11 / max 14）
 - PMTiles 単体検証は `validation/pmtiles-map.html` を維持
+
+### apps/web（実際のFrontend Application）
+
+`validation/*.html` は技術検証用として残し、V1フロント実装は `apps/web`（Next.js App Router）で進める。
+
+```text
+validation/map-creator.html  = Technical Validation
+apps/web                     = Actual Frontend Application
+```
+
+Local run（データサーバ併用）:
+
+```bash
+# Terminal 1 — GIS data (PMTiles / Shelter GeoJSON, Range 206 + CORS)
+python3 scripts/serve_validation.py --port 8080
+
+# Terminal 2 — Next.js
+cd apps/web
+npm run dev
+```
+
+Browser: `http://localhost:3000/map-creator`
+
+- データURL: `NEXT_PUBLIC_HAZARD_DATA_BASE_URL`（default `http://127.0.0.1:8080`）
+- PMTiles を `apps/web/public/` へコピーしない
+- Stadia API Key は Repository にハードコードしない（localhostは通常不要）
 
 ### Maputnik
 Map Style Authoring

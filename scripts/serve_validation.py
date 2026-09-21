@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validation用の簡易静的ファイルサーバ（HTTP Range対応）。"""
+"""Validation用の簡易静的ファイルサーバ（HTTP Range + CORS対応）。"""
 
 from __future__ import annotations
 
@@ -8,8 +8,26 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
+# Next.js (localhost:3000) から GIS データ (127.0.0.1:8080) を読むための最小CORS
+CORS_ORIGIN = "*"
+CORS_HEADERS = "Range, Content-Type"
+CORS_EXPOSE = "Accept-Ranges, Content-Range, Content-Length, Content-Type"
+
+
 class RangeRequestHandler(SimpleHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+
+    def end_headers(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", CORS_ORIGIN)
+        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", CORS_HEADERS)
+        self.send_header("Access-Control-Expose-Headers", CORS_EXPOSE)
+        self.send_header("Access-Control-Max-Age", "86400")
+        super().end_headers()
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self.send_response(204)
+        self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
         path = self.translate_path(self.path)
@@ -83,7 +101,8 @@ def main() -> None:
     handler.directory = args.directory
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
     print(f"serving {Path(args.directory).resolve()} on http://127.0.0.1:{args.port}")
-    print("validation page: /validation/pmtiles-map.html")
+    print("validation page: /validation/map-creator.html")
+    print("Next.js data base: NEXT_PUBLIC_HAZARD_DATA_BASE_URL=http://127.0.0.1:%s" % args.port)
     server.serve_forever()
 
 
