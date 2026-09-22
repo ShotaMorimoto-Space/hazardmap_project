@@ -5,14 +5,14 @@ import maplibregl, { type Map } from "maplibre-gl";
 import { Protocol } from "pmtiles";
 import "maplibre-gl/dist/maplibre-gl.css";
 import AddressSearch from "./AddressSearch";
-import { searchAddress, type HomeLocation } from "@/lib/stadiaGeocode";
+import { searchAddress } from "@/lib/stadiaGeocode";
+import {
+  INITIAL_MAP_CONFIG,
+  type HazardType,
+  type MapConfig,
+} from "@/types/mapConfig";
 import styles from "./MapCreator.module.css";
 
-export type HazardType = "none" | "flood" | "landslide" | "tsunami";
-
-// 初期表示用（Validation）。Hazard/Shelter PMTiles は兵庫県のみ。
-const INITIAL_HOME: HomeLocation = { lng: 135.4, lat: 34.78 };
-const INITIAL_ADDRESS = "兵庫県伊丹市（Validation）";
 const STADIA_STYLE_BASE =
   "https://tiles.stadiamaps.com/styles/alidade_smooth.json";
 
@@ -125,21 +125,17 @@ export default function MapCreator() {
   const homeMarkerRef = useRef<maplibregl.Marker | null>(null);
   const overlaysReadyRef = useRef(false);
 
-  const [hazardLayer, setHazardLayer] = useState<HazardType>("flood");
-  const [showShelters, setShowShelters] = useState(true);
+  const [mapConfig, setMapConfig] = useState<MapConfig>(INITIAL_MAP_CONFIG);
+
+  // Transient UI / Runtime State（MapConfig には入れない）
+  const [addressInput, setAddressInput] = useState("");
+  const [geocodingLoading, setGeocodingLoading] = useState(false);
+  const [geocodingError, setGeocodingError] = useState<string | null>(null);
   const [status, setStatus] = useState("initializing…");
   const [error, setError] = useState<string | null>(null);
 
-  const [addressInput, setAddressInput] = useState("");
-  const [currentAddress, setCurrentAddress] = useState(INITIAL_ADDRESS);
-  const [homeLocation, setHomeLocation] = useState<HomeLocation>(INITIAL_HOME);
-  const [geocodingLoading, setGeocodingLoading] = useState(false);
-  const [geocodingError, setGeocodingError] = useState<string | null>(null);
-
-  const hazardLayerRef = useRef(hazardLayer);
-  const showSheltersRef = useRef(showShelters);
-  hazardLayerRef.current = hazardLayer;
-  showSheltersRef.current = showShelters;
+  const mapConfigRef = useRef(mapConfig);
+  mapConfigRef.current = mapConfig;
 
   // Map init once
   useEffect(() => {
@@ -150,12 +146,13 @@ export default function MapCreator() {
     const base = dataBaseUrl();
     const tileBase = `${base}/data/tiles/hyogo`;
     const shelterUrl = `${base}/data/processed/hyogo/shelter.geojson`;
+    const initial = INITIAL_MAP_CONFIG;
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
       style: stadiaStyleUrl(),
-      center: [INITIAL_HOME.lng, INITIAL_HOME.lat],
-      zoom: 13,
+      center: [initial.mapView.centerLng, initial.mapView.centerLat],
+      zoom: initial.mapView.zoom,
       minZoom: 11,
       maxZoom: 14,
     });
@@ -175,7 +172,7 @@ export default function MapCreator() {
     homeEl.className = styles.homeMarker;
     homeEl.title = "Home";
     homeMarkerRef.current = new maplibregl.Marker({ element: homeEl })
-      .setLngLat([INITIAL_HOME.lng, INITIAL_HOME.lat])
+      .setLngLat([initial.location.lng, initial.location.lat])
       .addTo(map);
 
     const addHazardLayers = (beforeId?: string) => {
@@ -289,8 +286,9 @@ export default function MapCreator() {
         if (cancelled || !mapRef.current) return;
 
         overlaysReadyRef.current = true;
-        applyHazardVisibility(hazardLayerRef.current);
-        applyShelterVisibility(showSheltersRef.current);
+        const cfg = mapConfigRef.current;
+        applyHazardVisibility(cfg.hazardLayer);
+        applyShelterVisibility(cfg.shelterVisible);
         setStatus(
           `ready | data=${base} | shelter=${shelterCount} | z=${map
             .getZoom()
@@ -309,10 +307,24 @@ export default function MapCreator() {
     map.once("load", () => {
       void setupOverlays();
     });
-    // style.load でもフォールバック（環境によって load が遅い場合）
     map.once("style.load", () => {
       void setupOverlays();
     });
+
+    // pan / zoom 完了時のみ mapView を同期（location は変えない）
+    const onMoveEnd = () => {
+      if (cancelled) return;
+      const center = map.getCenter();
+      setMapConfig((prev) => ({
+        ...prev,
+        mapView: {
+          centerLat: center.lat,
+          centerLng: center.lng,
+          zoom: map.getZoom(),
+        },
+      }));
+    };
+    map.on("moveend", onMoveEnd);
 
     if (process.env.NODE_ENV === "development") {
       (window as unknown as { __hazardMap?: Map }).__hazardMap = map;
@@ -322,7 +334,6 @@ export default function MapCreator() {
       if (!cancelled && mapRef.current === map) map.resize();
     });
 
-    // Embedded / throttled browsers でも描画ループを起こす
     const kickRender = () => {
       if (cancelled || mapRef.current !== map) return;
       map.triggerRepaint();
@@ -346,6 +357,7 @@ export default function MapCreator() {
       window.clearInterval(kickId);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
+      map.off("moveend", onMoveEnd);
       homeMarkerRef.current?.remove();
       homeMarkerRef.current = null;
       map.off("error", onError);
@@ -358,11 +370,12 @@ export default function MapCreator() {
     };
   }, []);
 
+  // Hazard visibility from MapConfig
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !overlaysReadyRef.current) return;
     for (const key of Object.keys(HAZARD_DEFS)) {
-      const visible = hazardLayer === key ? "visible" : "none";
+      const visible = mapConfig.hazardLayer === key ? "visible" : "none";
       if (map.getLayer(`${key}-fill`)) {
         map.setLayoutProperty(`${key}-fill`, "visibility", visible);
       }
@@ -370,8 +383,9 @@ export default function MapCreator() {
         map.setLayoutProperty(`${key}-outline`, "visibility", visible);
       }
     }
-  }, [hazardLayer]);
+  }, [mapConfig.hazardLayer]);
 
+  // Shelter visibility from MapConfig
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !overlaysReadyRef.current) return;
@@ -379,10 +393,16 @@ export default function MapCreator() {
       map.setLayoutProperty(
         "shelter-circle",
         "visibility",
-        showShelters ? "visible" : "none"
+        mapConfig.shelterVisible ? "visible" : "none"
       );
     }
-  }, [showShelters]);
+  }, [mapConfig.shelterVisible]);
+
+  // Dev: MapConfig を確認用に公開（本番向けUIではない）
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    (window as unknown as { __mapConfig?: MapConfig }).__mapConfig = mapConfig;
+  }, [mapConfig]);
 
   const handleAddressSearch = async () => {
     if (geocodingLoading) return;
@@ -408,7 +428,22 @@ export default function MapCreator() {
 
       const { location, label } = result.value;
       const map = mapRef.current;
-      // Map 未準備でも State は更新可だが、移動は Map instance があるときのみ
+
+      setMapConfig((prev) => ({
+        ...prev,
+        location: {
+          address: label,
+          lat: location.lat,
+          lng: location.lng,
+        },
+        mapView: {
+          ...prev.mapView,
+          centerLat: location.lat,
+          centerLng: location.lng,
+          zoom: 13,
+        },
+      }));
+
       if (map) {
         map.flyTo({
           center: [location.lng, location.lat],
@@ -416,8 +451,6 @@ export default function MapCreator() {
         });
       }
       homeMarkerRef.current?.setLngLat([location.lng, location.lat]);
-      setHomeLocation(location);
-      setCurrentAddress(label);
       setGeocodingError(null);
     } finally {
       setGeocodingLoading(false);
@@ -432,7 +465,7 @@ export default function MapCreator() {
         <h2>LOCATION</h2>
         <AddressSearch
           addressInput={addressInput}
-          currentAddress={currentAddress}
+          currentAddress={mapConfig.location.address}
           loading={geocodingLoading}
           error={geocodingError}
           onAddressChange={setAddressInput}
@@ -455,8 +488,13 @@ export default function MapCreator() {
               type="radio"
               name="hazard"
               value={value}
-              checked={hazardLayer === value}
-              onChange={() => setHazardLayer(value)}
+              checked={mapConfig.hazardLayer === value}
+              onChange={() =>
+                setMapConfig((prev) => ({
+                  ...prev,
+                  hazardLayer: value,
+                }))
+              }
             />
             {label}
           </label>
@@ -466,8 +504,13 @@ export default function MapCreator() {
         <label className={styles.option}>
           <input
             type="checkbox"
-            checked={showShelters}
-            onChange={(event) => setShowShelters(event.target.checked)}
+            checked={mapConfig.shelterVisible}
+            onChange={(event) =>
+              setMapConfig((prev) => ({
+                ...prev,
+                shelterVisible: event.target.checked,
+              }))
+            }
           />
           Show shelters
         </label>
@@ -475,7 +518,7 @@ export default function MapCreator() {
         <div className={styles.status} data-error={error ? "true" : "false"}>
           {error
             ? error
-            : `${status} | home=${homeLocation.lng.toFixed(5)},${homeLocation.lat.toFixed(5)}`}
+            : `${status} | home=${mapConfig.location.lng.toFixed(5)},${mapConfig.location.lat.toFixed(5)} | view=${mapConfig.mapView.centerLng.toFixed(5)},${mapConfig.mapView.centerLat.toFixed(5)} z=${mapConfig.mapView.zoom.toFixed(2)}`}
         </div>
       </aside>
       <div ref={mapContainerRef} className={styles.map} />

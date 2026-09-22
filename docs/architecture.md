@@ -117,7 +117,54 @@ APIの細分化は実装段階で必要性を見て判断する。
 
 Map Configを、ユーザーが作成した地図の「設計図」として扱う。
 
-### Example
+### Current Validation MapConfig
+
+`apps/web` の Map Creator は現時点で以下を React State（`useState<MapConfig>`）として保持する。
+
+```text
+Map Creator
+     ↓
+MapConfig State
+     ├── location        （自宅位置 / Home Marker）
+     ├── mapView         （表示中の中心・zoom）
+     ├── hazardLayer
+     └── shelterVisible
+```
+
+```json
+{
+  "location": {
+    "address": "兵庫県伊丹市（Validation）",
+    "lat": 34.78,
+    "lng": 135.4
+  },
+  "mapView": {
+    "centerLat": 34.78,
+    "centerLng": 135.4,
+    "zoom": 13
+  },
+  "hazardLayer": "flood",
+  "shelterVisible": true
+}
+```
+
+- `location` と `mapView` は分離する（初期は同じ座標でも、pan 後は異なり得る）
+- 型定義: `apps/web/src/types/mapConfig.ts`
+- 今回は localStorage / DB / API へはまだ永続化しない（React State のみ）
+
+### Transient UI State（MapConfig に含めない）
+
+```text
+addressInput
+geocodingLoading
+geocodingError
+status
+error
+```
+
+これらは一時的な UI / Runtime State であり、地図の設計情報ではない。
+
+### Future Example（Commercial V1 想定）
 
 ```json
 {
