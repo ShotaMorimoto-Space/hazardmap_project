@@ -208,6 +208,59 @@ Map Configは以下で共通利用する。
 
 V1では独自アカウント・マイページを作らない。
 
+### Current Validation Implementation
+
+```text
+Map Creator
+     ↓
+MapConfig React State
+     ↓
+localStorage（draft only, version: 1）
+     ↓
+reload
+     ↓
+MapConfig Restore
+     ↓
+MapLibre 初期化（restore 後の center / zoom / Home で生成）
+```
+
+実装:
+
+- `apps/web/src/lib/mapConfigStorage.ts`
+- Storage key: `hazardmap.map-config`
+- 保存形式: `{ version: 1, mapConfig: MapConfig }`
+
+保存対象:
+
+```text
+location
+mapView
+hazardLayer
+shelterVisible
+```
+
+保存対象外（Transient UI State）:
+
+```text
+addressInput
+geocodingLoading
+geocodingError
+status
+error
+```
+
+Invalid JSON / wrong shape / unknown version:
+
+```text
+INITIAL_MAP_CONFIG fallback
+```
+
+重要:
+
+- restore 完了前に INITIAL_MAP_CONFIG で localStorage を上書きしない
+- restore 完了後に MapLibre を初期化する（一瞬伊丹へ戻るのを避ける）
+- 今回は Resume 確認 UI（「前回のマップを続けますか？」）は未実装。保存済みがあれば自動復元
+
 ### Editing State
 
 Map Creator操作中は、状態をFrontend Stateとして保持する。
@@ -223,11 +276,11 @@ Next.js State
       +---- localStorage
 ```
 
-### Draft Resume
+### Draft Resume（将来）
 
 途中離脱対策として、Map Configの下書きをlocalStorageへ自動保存する。
 
-同じ端末・同じブラウザで再アクセスした場合、「前回のマップを続けますか？」という形で再開可能にする。
+同じ端末・同じブラウザで再アクセスした場合、「前回のマップを続けますか？」という確認UIは後Issueで検討する。
 
 V1では以下は行わない。
 

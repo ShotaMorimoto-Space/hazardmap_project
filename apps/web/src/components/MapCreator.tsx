@@ -7,6 +7,11 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import AddressSearch from "./AddressSearch";
 import { searchAddress } from "@/lib/stadiaGeocode";
 import {
+  clearMapConfig,
+  loadMapConfig,
+  saveMapConfig,
+} from "@/lib/mapConfigStorage";
+import {
   INITIAL_MAP_CONFIG,
   type HazardType,
   type MapConfig,
@@ -126,8 +131,9 @@ export default function MapCreator() {
   const overlaysReadyRef = useRef(false);
 
   const [mapConfig, setMapConfig] = useState<MapConfig>(INITIAL_MAP_CONFIG);
+  const [mapConfigReady, setMapConfigReady] = useState(false);
 
-  // Transient UI / Runtime State（MapConfig には入れない）
+  // Transient UI / Runtime State（MapConfig / localStorage には入れない）
   const [addressInput, setAddressInput] = useState("");
   const [geocodingLoading, setGeocodingLoading] = useState(false);
   const [geocodingError, setGeocodingError] = useState<string | null>(null);
@@ -137,8 +143,23 @@ export default function MapCreator() {
   const mapConfigRef = useRef(mapConfig);
   mapConfigRef.current = mapConfig;
 
-  // Map init once
+  // Client mount: localStorage → MapConfig 確定（Map init より先）
   useEffect(() => {
+    const restored = loadMapConfig();
+    setMapConfig(restored);
+    mapConfigRef.current = restored;
+    setMapConfigReady(true);
+  }, []);
+
+  // MapConfig 変更を draft として自動保存（restore 完了前は保存しない）
+  useEffect(() => {
+    if (!mapConfigReady) return;
+    saveMapConfig(mapConfig);
+  }, [mapConfig, mapConfigReady]);
+
+  // Map init — restore 完了後に、確定済み MapConfig で生成
+  useEffect(() => {
+    if (!mapConfigReady) return;
     if (!mapContainerRef.current || mapRef.current) return;
 
     ensurePmtilesProtocol();
@@ -146,7 +167,7 @@ export default function MapCreator() {
     const base = dataBaseUrl();
     const tileBase = `${base}/data/tiles/hyogo`;
     const shelterUrl = `${base}/data/processed/hyogo/shelter.geojson`;
-    const initial = INITIAL_MAP_CONFIG;
+    const initial = mapConfigRef.current;
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
@@ -286,9 +307,9 @@ export default function MapCreator() {
         if (cancelled || !mapRef.current) return;
 
         overlaysReadyRef.current = true;
-        const cfg = mapConfigRef.current;
-        applyHazardVisibility(cfg.hazardLayer);
-        applyShelterVisibility(cfg.shelterVisible);
+        // Map 初期化時点の確定値（restore 済み）を優先
+        applyHazardVisibility(initial.hazardLayer);
+        applyShelterVisibility(initial.shelterVisible);
         setStatus(
           `ready | data=${base} | shelter=${shelterCount} | z=${map
             .getZoom()
@@ -328,6 +349,9 @@ export default function MapCreator() {
 
     if (process.env.NODE_ENV === "development") {
       (window as unknown as { __hazardMap?: Map }).__hazardMap = map;
+      (
+        window as unknown as { __clearMapConfigDraft?: () => void }
+      ).__clearMapConfigDraft = clearMapConfig;
     }
 
     requestAnimationFrame(() => {
@@ -362,13 +386,16 @@ export default function MapCreator() {
       homeMarkerRef.current = null;
       map.off("error", onError);
       if (process.env.NODE_ENV === "development") {
-        const w = window as unknown as { __hazardMap?: Map };
+        const w = window as unknown as {
+          __hazardMap?: Map;
+          __clearMapConfigDraft?: () => void;
+        };
         if (w.__hazardMap === map) delete w.__hazardMap;
       }
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [mapConfigReady]);
 
   // Hazard visibility from MapConfig
   useEffect(() => {
@@ -521,7 +548,11 @@ export default function MapCreator() {
             : `${status} | home=${mapConfig.location.lng.toFixed(5)},${mapConfig.location.lat.toFixed(5)} | view=${mapConfig.mapView.centerLng.toFixed(5)},${mapConfig.mapView.centerLat.toFixed(5)} z=${mapConfig.mapView.zoom.toFixed(2)}`}
         </div>
       </aside>
-      <div ref={mapContainerRef} className={styles.map} />
+      {!mapConfigReady ? (
+        <div className={styles.mapPreparing}>Mapを準備しています…</div>
+      ) : (
+        <div ref={mapContainerRef} className={styles.map} />
+      )}
     </div>
   );
 }

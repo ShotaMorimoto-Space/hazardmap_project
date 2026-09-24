@@ -132,6 +132,18 @@
   height: 100%;
 }
 
+.mapPreparing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 280px;
+  width: 100%;
+  height: 100%;
+  color: #556;
+  font: 14px/1.4 system-ui, sans-serif;
+  background: #e8eef2;
+}
+
 .homeMarker {
   width: 18px;
   height: 18px;
