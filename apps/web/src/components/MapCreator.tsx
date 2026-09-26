@@ -13,6 +13,7 @@ import {
 } from "@/lib/mapConfigStorage";
 import {
   INITIAL_MAP_CONFIG,
+  MAP_TITLE_MAX_LENGTH,
   type HazardType,
   type MapConfig,
 } from "@/types/mapConfig";
@@ -501,8 +502,38 @@ export default function MapCreator() {
           }}
         />
 
-        <h2>HAZARD</h2>
-        {(
+        <h2>TITLE</h2>
+        <div className={styles.titleBlock}>
+          <input
+            className={styles.titleInput}
+            type="text"
+            name="title"
+            maxLength={MAP_TITLE_MAX_LENGTH}
+            value={mapConfig.title}
+            onChange={(event) =>
+              setMapConfig((prev) => ({
+                ...prev,
+                title: event.target.value,
+              }))
+            }
+            placeholder="タイトルを入力"
+          />
+          <label className={styles.option}>
+            <input
+              type="checkbox"
+              checked={mapConfig.titleVisible}
+              onChange={(event) =>
+                setMapConfig((prev) => ({
+                  ...prev,
+                  titleVisible: event.target.checked,
+                }))
+              }
+            />
+            タイトルを表示
+          </label>
+        </div>
+
+        <h2>HAZARD</h2>        {(
           [
             ["none", "None"],
             ["flood", "Flood"],
@@ -551,7 +582,12 @@ export default function MapCreator() {
       {!mapConfigReady ? (
         <div className={styles.mapPreparing}>Mapを準備しています…</div>
       ) : (
-        <div ref={mapContainerRef} className={styles.map} />
+        <div className={styles.preview}>
+          <div ref={mapContainerRef} className={styles.map} />
+          {mapConfig.titleVisible && mapConfig.title.trim() !== "" ? (
+            <div className={styles.mapTitle}>{mapConfig.title}</div>
+          ) : null}
+        </div>
       )}
     </div>
   );

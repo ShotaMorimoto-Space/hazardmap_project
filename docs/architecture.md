@@ -127,6 +127,8 @@ Map Creator
 MapConfig State
      ├── location        （自宅位置 / Home Marker）
      ├── mapView         （表示中の中心・zoom）
+     ├── title
+     ├── titleVisible
      ├── hazardLayer
      └── shelterVisible
 ```
@@ -144,13 +146,16 @@ MapConfig State
     "zoom": 13
   },
   "hazardLayer": "flood",
-  "shelterVisible": true
+  "shelterVisible": true,
+  "title": "わたしたちのまち",
+  "titleVisible": true
 }
 ```
 
 - `location` と `mapView` は分離する（初期は同じ座標でも、pan 後は異なり得る）
+- `title` は Preview 上の DOM Overlay（MapLibre Layer ではない）。`titleVisible` で表示切替
 - 型定義: `apps/web/src/types/mapConfig.ts`
-- 今回は localStorage / DB / API へはまだ永続化しない（React State のみ）
+- Draft は localStorage へ自動保存（`mapConfigStorage.ts`）
 
 ### Transient UI State（MapConfig に含めない）
 
@@ -228,7 +233,18 @@ MapLibre 初期化（restore 後の center / zoom / Home で生成）
 
 - `apps/web/src/lib/mapConfigStorage.ts`
 - Storage key: `hazardmap.map-config`
-- 保存形式: `{ version: 1, mapConfig: MapConfig }`
+- 保存形式: `{ version: 2, mapConfig: MapConfig }`
+
+Storage Version:
+
+```text
+v1 → v2
+```
+
+- v1: location / mapView / hazardLayer / shelterVisible
+- v2: + title / titleVisible
+- v1 Draft は title / titleVisible を INITIAL 値で補完して v2 へ Migration（既存位置・Hazard 等は維持）
+- 次回 save 時に version 2 として保存
 
 保存対象:
 
@@ -237,6 +253,8 @@ location
 mapView
 hazardLayer
 shelterVisible
+title
+titleVisible
 ```
 
 保存対象外（Transient UI State）:

@@ -3,17 +3,19 @@
  *
  * SSR-safe: module top-level で window / localStorage を触らない。
  * 壊れたデータ・不明 version は INITIAL_MAP_CONFIG へ fallback。
+ * Storage v1 → v2: title / titleVisible を補完して Migration。
  */
 
 import {
   INITIAL_MAP_CONFIG,
+  MAP_TITLE_MAX_LENGTH,
   type HazardType,
   type MapConfig,
 } from "@/types/mapConfig";
 
 export const MAP_CONFIG_STORAGE_KEY = "hazardmap.map-config";
 
-export const MAP_CONFIG_STORAGE_VERSION = 1 as const;
+export const MAP_CONFIG_STORAGE_VERSION = 2 as const;
 
 export type StoredMapConfig = {
   version: typeof MAP_CONFIG_STORAGE_VERSION;
@@ -41,7 +43,12 @@ function isHazardType(value: unknown): value is HazardType {
   );
 }
 
-export function isMapConfig(value: unknown): value is MapConfig {
+function isValidTitle(value: unknown): value is string {
+  return typeof value === "string" && value.length <= MAP_TITLE_MAX_LENGTH;
+}
+
+/** v1 / v2 共通の core fields（title なし） */
+function isMapConfigCore(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const cfg = value as Record<string, unknown>;
 
@@ -55,7 +62,11 @@ export function isMapConfig(value: unknown): value is MapConfig {
   const mapView = cfg.mapView;
   if (!mapView || typeof mapView !== "object") return false;
   const view = mapView as Record<string, unknown>;
-  if (!isFiniteNumber(view.centerLat) || view.centerLat < -90 || view.centerLat > 90) {
+  if (
+    !isFiniteNumber(view.centerLat) ||
+    view.centerLat < -90 ||
+    view.centerLat > 90
+  ) {
     return false;
   }
   if (
@@ -75,13 +86,40 @@ export function isMapConfig(value: unknown): value is MapConfig {
   return true;
 }
 
+/** Storage v1 の MapConfig（title / titleVisible なし） */
+export function isMapConfigV1(value: unknown): boolean {
+  return isMapConfigCore(value);
+}
+
+/** Storage v2 の MapConfig（現在の正式 shape） */
+export function isMapConfig(value: unknown): value is MapConfig {
+  if (!isMapConfigCore(value)) return false;
+  const cfg = value as Record<string, unknown>;
+  if (!isValidTitle(cfg.title)) return false;
+  if (typeof cfg.titleVisible !== "boolean") return false;
+  return true;
+}
+
+function migrateV1ToV2(v1: Record<string, unknown>): MapConfig {
+  return {
+    location: v1.location as MapConfig["location"],
+    mapView: v1.mapView as MapConfig["mapView"],
+    hazardLayer: v1.hazardLayer as HazardType,
+    shelterVisible: v1.shelterVisible as boolean,
+    title: INITIAL_MAP_CONFIG.title,
+    titleVisible: INITIAL_MAP_CONFIG.titleVisible,
+  };
+}
+
 function canUseLocalStorage(): boolean {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
 /**
  * localStorage から MapConfig を読む。
- * 欠損・破損・不正 shape・不明 version は INITIAL_MAP_CONFIG を返す。
+ * - version 2 + valid → そのまま
+ * - version 1 + valid core → title 補完して v2
+ * - 欠損・破損・不正 shape・不明 version → INITIAL_MAP_CONFIG
  */
 export function loadMapConfig(): MapConfig {
   if (!canUseLocalStorage()) return INITIAL_MAP_CONFIG;
@@ -108,23 +146,44 @@ export function loadMapConfig(): MapConfig {
     }
 
     const stored = parsed as Record<string, unknown>;
-    if (stored.version !== MAP_CONFIG_STORAGE_VERSION) {
+
+    // v2
+    if (stored.version === MAP_CONFIG_STORAGE_VERSION) {
+      if (!isMapConfig(stored.mapConfig)) {
+        if (process.env.NODE_ENV === "development") {
+          console.warn(
+            "[mapConfigStorage] invalid mapConfig shape (v2); using INITIAL_MAP_CONFIG"
+          );
+        }
+        return INITIAL_MAP_CONFIG;
+      }
+      return stored.mapConfig;
+    }
+
+    // v1 → v2 migration（既存 Draft を捨てない）
+    if (stored.version === 1) {
+      if (!isMapConfigV1(stored.mapConfig)) {
+        if (process.env.NODE_ENV === "development") {
+          console.warn(
+            "[mapConfigStorage] invalid mapConfig shape (v1); using INITIAL_MAP_CONFIG"
+          );
+        }
+        return INITIAL_MAP_CONFIG;
+      }
       if (process.env.NODE_ENV === "development") {
         console.warn(
-          `[mapConfigStorage] unsupported version ${String(stored.version)}; using INITIAL_MAP_CONFIG`
+          "[mapConfigStorage] migrating storage v1 → v2 (title / titleVisible)"
         );
       }
-      return INITIAL_MAP_CONFIG;
+      return migrateV1ToV2(stored.mapConfig as Record<string, unknown>);
     }
 
-    if (!isMapConfig(stored.mapConfig)) {
-      if (process.env.NODE_ENV === "development") {
-        console.warn("[mapConfigStorage] invalid mapConfig shape; using INITIAL_MAP_CONFIG");
-      }
-      return INITIAL_MAP_CONFIG;
+    if (process.env.NODE_ENV === "development") {
+      console.warn(
+        `[mapConfigStorage] unsupported version ${String(stored.version)}; using INITIAL_MAP_CONFIG`
+      );
     }
-
-    return stored.mapConfig;
+    return INITIAL_MAP_CONFIG;
   } catch (err) {
     if (process.env.NODE_ENV === "development") {
       console.warn("[mapConfigStorage] load failed; using INITIAL_MAP_CONFIG", err);
