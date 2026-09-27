@@ -127,6 +127,7 @@ Map Creator
 MapConfig State
      ├── location        （自宅位置 / Home Marker）
      ├── mapView         （表示中の中心・zoom）
+     ├── layout          （full-map | bottom-title）
      ├── title
      ├── titleVisible
      ├── hazardLayer
@@ -145,6 +146,7 @@ MapConfig State
     "centerLng": 135.4,
     "zoom": 13
   },
+  "layout": "full-map",
   "hazardLayer": "flood",
   "shelterVisible": true,
   "title": "わたしたちのまち",
@@ -153,7 +155,8 @@ MapConfig State
 ```
 
 - `location` と `mapView` は分離する（初期は同じ座標でも、pan 後は異なり得る）
-- `title` は Preview 上の DOM Overlay（MapLibre Layer ではない）。`titleVisible` で表示切替
+- `layout` はポスター上の地図／タイトル配置。`full-map` は地図上 Overlay、`bottom-title` は地図外の下部タイトル領域
+- `title` / `titleVisible` は Layout と独立。`bottom-title` + title OFF でも下部帯は残る
 - 型定義: `apps/web/src/types/mapConfig.ts`
 - Draft は localStorage へ自動保存（`mapConfigStorage.ts`）
 
@@ -220,7 +223,7 @@ Map Creator
      ↓
 MapConfig React State
      ↓
-localStorage（draft only, version: 1）
+localStorage（draft only, current version: 3）
      ↓
 reload
      ↓
@@ -233,24 +236,32 @@ MapLibre 初期化（restore 後の center / zoom / Home で生成）
 
 - `apps/web/src/lib/mapConfigStorage.ts`
 - Storage key: `hazardmap.map-config`
-- 保存形式: `{ version: 2, mapConfig: MapConfig }`
+- 保存形式: `{ version: 3, mapConfig: MapConfig }`
 
 Storage Version:
 
 ```text
-v1 → v2
+v1
+↓
+v2 + title / titleVisible
+↓
+v3 + layout
 ```
 
 - v1: location / mapView / hazardLayer / shelterVisible
 - v2: + title / titleVisible
-- v1 Draft は title / titleVisible を INITIAL 値で補完して v2 へ Migration（既存位置・Hazard 等は維持）
-- 次回 save 時に version 2 として保存
+- v3: + layout（`full-map` | `bottom-title`）
+- v1 Draft は title / titleVisible / layout を INITIAL 値で補完して v3 へ Migration
+- v2 Draft は layout を INITIAL（`full-map`）で補完して v3 へ Migration
+- 既存位置・Hazard・title 等は維持する
+- 次回 save 時に version 3 として保存
 
 保存対象:
 
 ```text
 location
 mapView
+layout
 hazardLayer
 shelterVisible
 title

@@ -3,12 +3,15 @@
  *
  * location = ユーザーの自宅位置（Home Marker）
  * mapView  = 現在表示している地図の中心・zoom（pan/zoomで変化し得る）
- * title / titleVisible = 商品タイトル（Preview Overlay）
+ * layout   = ポスター上の地図／タイトル配置
+ * title / titleVisible = 商品タイトル（Preview Overlay / 下部領域）
  *
- * 未実装のためまだ含めない: layout / mapStyle / familyPlaces
+ * 未実装のためまだ含めない: mapStyle / familyPlaces / A1・A2
  */
 
 export type HazardType = "none" | "flood" | "landslide" | "tsunami";
+
+export type MapLayout = "full-map" | "bottom-title";
 
 export type MapConfig = {
   location: {
@@ -21,6 +24,7 @@ export type MapConfig = {
     centerLng: number;
     zoom: number;
   };
+  layout: MapLayout;
   hazardLayer: HazardType;
   shelterVisible: boolean;
   title: string;
@@ -38,6 +42,7 @@ export const INITIAL_MAP_CONFIG: MapConfig = {
     centerLng: 135.4,
     zoom: 13,
   },
+  layout: "full-map",
   hazardLayer: "flood",
   shelterVisible: true,
   title: "わたしたちのまち",

@@ -3,7 +3,11 @@
  *
  * SSR-safe: module top-level で window / localStorage を触らない。
  * 壊れたデータ・不明 version は INITIAL_MAP_CONFIG へ fallback。
- * Storage v1 → v2: title / titleVisible を補完して Migration。
+ *
+ * Storage migrations:
+ * - v1 → v3: title / titleVisible / layout を INITIAL で補完
+ * - v2 → v3: layout を INITIAL で補完
+ * - v3 → そのまま
  */
 
 import {
@@ -11,11 +15,12 @@ import {
   MAP_TITLE_MAX_LENGTH,
   type HazardType,
   type MapConfig,
+  type MapLayout,
 } from "@/types/mapConfig";
 
 export const MAP_CONFIG_STORAGE_KEY = "hazardmap.map-config";
 
-export const MAP_CONFIG_STORAGE_VERSION = 2 as const;
+export const MAP_CONFIG_STORAGE_VERSION = 3 as const;
 
 export type StoredMapConfig = {
   version: typeof MAP_CONFIG_STORAGE_VERSION;
@@ -28,6 +33,8 @@ const HAZARD_VALUES: readonly HazardType[] = [
   "landslide",
   "tsunami",
 ];
+
+const LAYOUT_VALUES: readonly MapLayout[] = ["full-map", "bottom-title"];
 
 const MIN_ZOOM = 11;
 const MAX_ZOOM = 14;
@@ -43,11 +50,18 @@ function isHazardType(value: unknown): value is HazardType {
   );
 }
 
+export function isMapLayout(value: unknown): value is MapLayout {
+  return (
+    typeof value === "string" &&
+    (LAYOUT_VALUES as readonly string[]).includes(value)
+  );
+}
+
 function isValidTitle(value: unknown): value is string {
   return typeof value === "string" && value.length <= MAP_TITLE_MAX_LENGTH;
 }
 
-/** v1 / v2 共通の core fields（title なし） */
+/** v1 core fields（title / layout なし） */
 function isMapConfigCore(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const cfg = value as Record<string, unknown>;
@@ -86,13 +100,13 @@ function isMapConfigCore(value: unknown): boolean {
   return true;
 }
 
-/** Storage v1 の MapConfig（title / titleVisible なし） */
+/** Storage v1 の MapConfig（title / titleVisible / layout なし） */
 export function isMapConfigV1(value: unknown): boolean {
   return isMapConfigCore(value);
 }
 
-/** Storage v2 の MapConfig（現在の正式 shape） */
-export function isMapConfig(value: unknown): value is MapConfig {
+/** Storage v2 の MapConfig（layout なし） */
+export function isMapConfigV2(value: unknown): boolean {
   if (!isMapConfigCore(value)) return false;
   const cfg = value as Record<string, unknown>;
   if (!isValidTitle(cfg.title)) return false;
@@ -100,7 +114,15 @@ export function isMapConfig(value: unknown): value is MapConfig {
   return true;
 }
 
-function migrateV1ToV2(v1: Record<string, unknown>): MapConfig {
+/** Storage v3 の MapConfig（現在の正式 shape） */
+export function isMapConfig(value: unknown): value is MapConfig {
+  if (!isMapConfigV2(value)) return false;
+  const cfg = value as Record<string, unknown>;
+  if (!isMapLayout(cfg.layout)) return false;
+  return true;
+}
+
+function migrateV1ToV3(v1: Record<string, unknown>): MapConfig {
   return {
     location: v1.location as MapConfig["location"],
     mapView: v1.mapView as MapConfig["mapView"],
@@ -108,6 +130,19 @@ function migrateV1ToV2(v1: Record<string, unknown>): MapConfig {
     shelterVisible: v1.shelterVisible as boolean,
     title: INITIAL_MAP_CONFIG.title,
     titleVisible: INITIAL_MAP_CONFIG.titleVisible,
+    layout: INITIAL_MAP_CONFIG.layout,
+  };
+}
+
+function migrateV2ToV3(v2: Record<string, unknown>): MapConfig {
+  return {
+    location: v2.location as MapConfig["location"],
+    mapView: v2.mapView as MapConfig["mapView"],
+    hazardLayer: v2.hazardLayer as HazardType,
+    shelterVisible: v2.shelterVisible as boolean,
+    title: v2.title as string,
+    titleVisible: v2.titleVisible as boolean,
+    layout: INITIAL_MAP_CONFIG.layout,
   };
 }
 
@@ -117,8 +152,9 @@ function canUseLocalStorage(): boolean {
 
 /**
  * localStorage から MapConfig を読む。
- * - version 2 + valid → そのまま
- * - version 1 + valid core → title 補完して v2
+ * - version 3 + valid → そのまま
+ * - version 2 + valid → layout 補完して v3
+ * - version 1 + valid core → title / titleVisible / layout 補完して v3
  * - 欠損・破損・不正 shape・不明 version → INITIAL_MAP_CONFIG
  */
 export function loadMapConfig(): MapConfig {
@@ -147,12 +183,12 @@ export function loadMapConfig(): MapConfig {
 
     const stored = parsed as Record<string, unknown>;
 
-    // v2
+    // v3
     if (stored.version === MAP_CONFIG_STORAGE_VERSION) {
       if (!isMapConfig(stored.mapConfig)) {
         if (process.env.NODE_ENV === "development") {
           console.warn(
-            "[mapConfigStorage] invalid mapConfig shape (v2); using INITIAL_MAP_CONFIG"
+            "[mapConfigStorage] invalid mapConfig shape (v3); using INITIAL_MAP_CONFIG"
           );
         }
         return INITIAL_MAP_CONFIG;
@@ -160,7 +196,25 @@ export function loadMapConfig(): MapConfig {
       return stored.mapConfig;
     }
 
-    // v1 → v2 migration（既存 Draft を捨てない）
+    // v2 → v3 migration
+    if (stored.version === 2) {
+      if (!isMapConfigV2(stored.mapConfig)) {
+        if (process.env.NODE_ENV === "development") {
+          console.warn(
+            "[mapConfigStorage] invalid mapConfig shape (v2); using INITIAL_MAP_CONFIG"
+          );
+        }
+        return INITIAL_MAP_CONFIG;
+      }
+      if (process.env.NODE_ENV === "development") {
+        console.warn(
+          "[mapConfigStorage] migrating storage v2 → v3 (layout)"
+        );
+      }
+      return migrateV2ToV3(stored.mapConfig as Record<string, unknown>);
+    }
+
+    // v1 → v3 migration（既存 Draft を捨てない）
     if (stored.version === 1) {
       if (!isMapConfigV1(stored.mapConfig)) {
         if (process.env.NODE_ENV === "development") {
@@ -172,10 +226,10 @@ export function loadMapConfig(): MapConfig {
       }
       if (process.env.NODE_ENV === "development") {
         console.warn(
-          "[mapConfigStorage] migrating storage v1 → v2 (title / titleVisible)"
+          "[mapConfigStorage] migrating storage v1 → v3 (title / titleVisible / layout)"
         );
       }
-      return migrateV1ToV2(stored.mapConfig as Record<string, unknown>);
+      return migrateV1ToV3(stored.mapConfig as Record<string, unknown>);
     }
 
     if (process.env.NODE_ENV === "development") {

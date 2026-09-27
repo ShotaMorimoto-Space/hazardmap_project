@@ -16,6 +16,7 @@ import {
   MAP_TITLE_MAX_LENGTH,
   type HazardType,
   type MapConfig,
+  type MapLayout,
 } from "@/types/mapConfig";
 import styles from "./MapCreator.module.css";
 
@@ -426,6 +427,16 @@ export default function MapCreator() {
     }
   }, [mapConfig.shelterVisible]);
 
+  // Layout 変更で Map container サイズが変わるため resize（再生成ではない）
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const id = requestAnimationFrame(() => {
+      map.resize();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [mapConfig.layout]);
+
   // Dev: MapConfig を確認用に公開（本番向けUIではない）
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
@@ -502,6 +513,30 @@ export default function MapCreator() {
           }}
         />
 
+        <h2>LAYOUT</h2>
+        {(
+          [
+            ["full-map", "Full Map"],
+            ["bottom-title", "Bottom Title"],
+          ] as const satisfies ReadonlyArray<readonly [MapLayout, string]>
+        ).map(([value, label]) => (
+          <label key={value} className={styles.option}>
+            <input
+              type="radio"
+              name="layout"
+              value={value}
+              checked={mapConfig.layout === value}
+              onChange={() =>
+                setMapConfig((prev) => ({
+                  ...prev,
+                  layout: value,
+                }))
+              }
+            />
+            {label}
+          </label>
+        ))}
+
         <h2>TITLE</h2>
         <div className={styles.titleBlock}>
           <input
@@ -533,7 +568,8 @@ export default function MapCreator() {
           </label>
         </div>
 
-        <h2>HAZARD</h2>        {(
+        <h2>HAZARD</h2>
+        {(
           [
             ["none", "None"],
             ["flood", "Flood"],
@@ -582,10 +618,27 @@ export default function MapCreator() {
       {!mapConfigReady ? (
         <div className={styles.mapPreparing}>Mapを準備しています…</div>
       ) : (
-        <div className={styles.preview}>
-          <div ref={mapContainerRef} className={styles.map} />
-          {mapConfig.titleVisible && mapConfig.title.trim() !== "" ? (
-            <div className={styles.mapTitle}>{mapConfig.title}</div>
+        <div
+          className={`${styles.preview} ${
+            mapConfig.layout === "bottom-title"
+              ? styles.bottomTitleLayout
+              : styles.fullMapLayout
+          }`}
+        >
+          <div className={styles.mapArea}>
+            <div ref={mapContainerRef} className={styles.map} />
+            {mapConfig.layout === "full-map" &&
+            mapConfig.titleVisible &&
+            mapConfig.title.trim() !== "" ? (
+              <div className={styles.mapTitleOverlay}>{mapConfig.title}</div>
+            ) : null}
+          </div>
+          {mapConfig.layout === "bottom-title" ? (
+            <div className={styles.bottomTitleArea}>
+              {mapConfig.titleVisible && mapConfig.title.trim() !== "" ? (
+                <div className={styles.bottomTitle}>{mapConfig.title}</div>
+              ) : null}
+            </div>
           ) : null}
         </div>
       )}
