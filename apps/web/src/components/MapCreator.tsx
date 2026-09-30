@@ -427,15 +427,27 @@ export default function MapCreator() {
     }
   }, [mapConfig.shelterVisible]);
 
-  // Layout 変更で Map container サイズが変わるため resize（再生成ではない）
+  // Poster / layout による Map container サイズ変化を追従（再生成ではない）
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const id = requestAnimationFrame(() => {
-      map.resize();
+    if (!mapConfigReady) return;
+    const el = mapContainerRef.current;
+    if (!el) return;
+
+    const resize = () => {
+      mapRef.current?.resize();
+    };
+
+    const rafId = requestAnimationFrame(resize);
+    const observer = new ResizeObserver(() => {
+      requestAnimationFrame(resize);
     });
-    return () => cancelAnimationFrame(id);
-  }, [mapConfig.layout]);
+    observer.observe(el);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  }, [mapConfigReady, mapConfig.layout]);
 
   // Dev: MapConfig を確認用に公開（本番向けUIではない）
   useEffect(() => {
@@ -615,33 +627,35 @@ export default function MapCreator() {
             : `${status} | home=${mapConfig.location.lng.toFixed(5)},${mapConfig.location.lat.toFixed(5)} | view=${mapConfig.mapView.centerLng.toFixed(5)},${mapConfig.mapView.centerLat.toFixed(5)} z=${mapConfig.mapView.zoom.toFixed(2)}`}
         </div>
       </aside>
-      {!mapConfigReady ? (
-        <div className={styles.mapPreparing}>Mapを準備しています…</div>
-      ) : (
-        <div
-          className={`${styles.preview} ${
-            mapConfig.layout === "bottom-title"
-              ? styles.bottomTitleLayout
-              : styles.fullMapLayout
-          }`}
-        >
-          <div className={styles.mapArea}>
-            <div ref={mapContainerRef} className={styles.map} />
-            {mapConfig.layout === "full-map" &&
-            mapConfig.titleVisible &&
-            mapConfig.title.trim() !== "" ? (
-              <div className={styles.mapTitleOverlay}>{mapConfig.title}</div>
-            ) : null}
-          </div>
-          {mapConfig.layout === "bottom-title" ? (
-            <div className={styles.bottomTitleArea}>
-              {mapConfig.titleVisible && mapConfig.title.trim() !== "" ? (
-                <div className={styles.bottomTitle}>{mapConfig.title}</div>
+      <div className={styles.previewWorkspace}>
+        {!mapConfigReady ? (
+          <div className={styles.mapPreparing}>Mapを準備しています…</div>
+        ) : (
+          <div
+            className={`${styles.poster} ${
+              mapConfig.layout === "bottom-title"
+                ? styles.bottomTitleLayout
+                : styles.fullMapLayout
+            }`}
+          >
+            <div className={styles.mapArea}>
+              <div ref={mapContainerRef} className={styles.map} />
+              {mapConfig.layout === "full-map" &&
+              mapConfig.titleVisible &&
+              mapConfig.title.trim() !== "" ? (
+                <div className={styles.mapTitleOverlay}>{mapConfig.title}</div>
               ) : null}
             </div>
-          ) : null}
-        </div>
-      )}
+            {mapConfig.layout === "bottom-title" ? (
+              <div className={styles.bottomTitleArea}>
+                {mapConfig.titleVisible && mapConfig.title.trim() !== "" ? (
+                  <div className={styles.bottomTitle}>{mapConfig.title}</div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

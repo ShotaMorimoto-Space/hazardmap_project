@@ -160,6 +160,24 @@ MapConfig State
 - 型定義: `apps/web/src/types/mapConfig.ts`
 - Draft は localStorage へ自動保存（`mapConfigStorage.ts`）
 
+### Map Creator Preview Structure（Validation）
+
+```text
+Map Creator
+├── Control Panel
+└── Poster Preview Workspace
+      └── Poster Canvas
+            ├── Map Area（MapLibre）
+            └── Title Area / Overlay（layout 依存）
+```
+
+- 右側全体は Map ではなく **Preview Workspace**（neutral background）
+- 中央に **Poster Canvas**（白い印刷面イメージ）を配置
+- Poster aspect ratio は A判縦型相当 `1 : √2`（CSS `aspect-ratio: 1 / 1.41421356`）
+- 現時点では **physical size（mm）未指定**。A1 / A2 選択も未実装
+- `full-map` / `bottom-title` は Workspace 全体ではなく **Poster 内部**で切り替える
+- MapLibre container は必ず Poster 内部に置く。Layout 変更時は `resize()` のみ（Map 再生成しない）
+
 ### Transient UI State（MapConfig に含めない）
 
 ```text
